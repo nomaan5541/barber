@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Policy
+import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.WorkOutline
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -37,6 +39,7 @@ object AppRoutes {
     const val ROUTE_SERVICE_SELECTION = "service_selection"
     const val ROUTE_DOOR_SETUP = "door_setup"
     const val ROUTE_BOOKINGS = "bookings"
+    const val ROUTE_CART = "cart"
     const val ROUTE_ADDRESSES = "addresses"
     const val ROUTE_PROFILE = "profile"
     const val ROUTE_AUTH = "auth"
@@ -76,6 +79,13 @@ val customerNavTabs: List<NavTabSpec> = listOf(
         selectedIcon = Icons.AutoMirrored.Filled.EventNote,
         unselectedIcon = Icons.AutoMirrored.Outlined.EventNote,
         testTag = "nav_customer_bookings"
+    ),
+    NavTabSpec(
+        route = AppRoutes.ROUTE_CART,
+        labelRes = R.string.nav_cart,
+        selectedIcon = Icons.Filled.ShoppingBag,
+        unselectedIcon = Icons.Outlined.ShoppingBag,
+        testTag = "nav_customer_cart"
     ),
     NavTabSpec(
         route = AppRoutes.ROUTE_ADDRESSES,

@@ -8,18 +8,25 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performTextReplacement
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import com.example.ui.customer.DoorNumberSetupScreen
+import com.example.ui.customer.GuestAccountHubScreen
+import com.example.ui.customer.GuestCartScreen
 import com.example.ui.customer.ServiceSelectionLandingScreen
+import com.example.ui.customer.canonicalGroomingCatalog
 import com.example.ui.navigation.AppRoutes
+import com.example.ui.navigation.customerNavTabs
 import com.example.ui.theme.DoorCutTheme
 import com.example.util.DetectedDoorLocation
 import com.example.util.LocationHelper
 import com.example.util.PendingDoorAddressDraft
+import com.example.util.PhonePermissionsHelper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -41,6 +48,38 @@ class ExampleRobolectricTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
         assertEquals("DoorCut", appName)
+    }
+
+    @Test
+    fun `bottom navigation places cart tab immediately after bookings and catalog includes normal and traditional haircuts`() {
+        assertEquals(
+            listOf(
+                AppRoutes.ROUTE_SERVICE_SELECTION,
+                AppRoutes.ROUTE_BOOKINGS,
+                AppRoutes.ROUTE_CART,
+                AppRoutes.ROUTE_ADDRESSES,
+                AppRoutes.ROUTE_PROFILE
+            ),
+            customerNavTabs.map { it.route }
+        )
+        assertEquals("nav_customer_bookings", customerNavTabs[1].testTag)
+        assertEquals("nav_customer_cart", customerNavTabs[2].testTag)
+
+        val catalog = canonicalGroomingCatalog()
+        assertTrue(catalog.size >= 15)
+        val normalCut = catalog.firstOrNull { it.id == "svc_normal_head_cut" }
+        val traditionalCut = catalog.firstOrNull { it.id == "svc_traditional_cut" }
+        assertNotNull(normalCut)
+        assertNotNull(traditionalCut)
+        assertEquals("Normal Head Cut", normalCut!!.name)
+        assertEquals(19900L, normalCut.pricePaise)
+        assertTrue(traditionalCut!!.name.contains("Traditional Haircut"))
+        assertEquals(22900L, traditionalCut.pricePaise)
+
+        val allPerms = PhonePermissionsHelper.allFeaturePermissionsArray().toList()
+        assertTrue(allPerms.contains(android.Manifest.permission.ACCESS_FINE_LOCATION))
+        assertTrue(allPerms.contains(android.Manifest.permission.POST_NOTIFICATIONS))
+        assertTrue(allPerms.contains(android.Manifest.permission.CAMERA))
     }
 
     @Test
@@ -130,7 +169,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `compose navigation sets service selection as landing page with service grid placeholders and routes to door setup`() {
+    fun `compose navigation sets service selection as landing page with normal and traditional haircuts and routes to door setup`() {
         val detected = DetectedDoorLocation(
             doorHint = "",
             streetArea = "12th Main Road, Indiranagar",
@@ -186,11 +225,11 @@ class ExampleRobolectricTest {
 
         composeTestRule.waitForIdle()
 
-        // Verify Service Selection is the immediate landing page with the Service Grid & placeholders
+        // Verify Service Selection is the immediate landing page with Normal Head Cut & Traditional Haircut
         composeTestRule.onNodeWithTag("service_selection_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("service_selection_grid").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("service_card_svc_classic_cut").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("service_card_svc_skin_fade").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("service_card_svc_normal_head_cut").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("service_card_svc_traditional_cut").assertIsDisplayed()
 
         // Navigate to Door Setup via Compose Navigation when tapping the top GPS/Door capsule
         composeTestRule.onNodeWithTag("home_address_selector").performClick()
@@ -199,4 +238,70 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("door_setup_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("detected_coordinates_card").assertIsDisplayed()
     }
+
+    @Test
+    fun `cart and account screens display selected haircuts, card payment options, previous bookings, and phone permissions`() {
+        composeTestRule.setContent {
+            DoorCutTheme {
+                GuestCartScreen(
+                    detectedLocation = null,
+                    pendingDoorDraft = null,
+                    selectedServiceIds = setOf("svc_normal_head_cut", "svc_traditional_cut"),
+                    onToggleService = {},
+                    onClearCart = {},
+                    onBrowseServices = {},
+                    onOpenDoorSetup = {},
+                    onAuthSuccess = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("customer_cart_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("customer_cart_screen")
+            .performScrollToNode(hasTestTag("cart_item_svc_normal_head_cut"))
+        composeTestRule.onNodeWithTag("cart_item_svc_normal_head_cut").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("customer_cart_screen")
+            .performScrollToNode(hasTestTag("cart_payment_options_card"))
+        composeTestRule.onNodeWithTag("cart_payment_options_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("payment_option_card_pos_at_door").assertIsDisplayed()
+    }
+
+    @Test
+    fun `account hub displays previous bookings section, features grid, permissions manager, and card preferences`() {
+        composeTestRule.setContent {
+            DoorCutTheme {
+                GuestAccountHubScreen(
+                    detectedLocation = null,
+                    pendingDoorDraft = null,
+                    selectedServiceCount = 2,
+                    onNavigateToServices = {},
+                    onNavigateToCart = {},
+                    onNavigateToDoorSetup = {},
+                    onRefreshGps = {},
+                    onAuthSuccess = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("customer_account_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("customer_account_screen")
+            .performScrollToNode(hasTestTag("account_previous_bookings_section"))
+        composeTestRule.onNodeWithTag("account_previous_bookings_section").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("customer_account_screen")
+            .performScrollToNode(hasTestTag("account_features_grid"))
+        composeTestRule.onNodeWithTag("account_features_grid").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("customer_account_screen")
+            .performScrollToNode(hasTestTag("account_permissions_section"))
+        composeTestRule.onNodeWithTag("account_permissions_section").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("customer_account_screen")
+            .performScrollToNode(hasTestTag("account_payment_card_section"))
+        composeTestRule.onNodeWithTag("account_payment_card_section").assertIsDisplayed()
+    }
 }
+

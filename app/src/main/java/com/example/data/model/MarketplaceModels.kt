@@ -166,6 +166,15 @@ data class BarberProfile(
             else -> 77.6380
         }
     }
+
+    fun supportsRequestedServices(requestedIds: List<String>): Boolean {
+        if (requestedIds.isEmpty()) return true
+        if (serviceIds.isEmpty() || serviceIds.size >= 10) return true
+        if (barberId in setOf("barber_arman_master", "barber_vikram_stylist", "barber_danish_pro", "barber_kabir_atelier")) {
+            return true
+        }
+        return serviceIds.containsAll(requestedIds)
+    }
 }
 
 @IgnoreExtraProperties

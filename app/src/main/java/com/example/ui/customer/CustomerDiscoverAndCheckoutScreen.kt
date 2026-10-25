@@ -80,6 +80,7 @@ import com.example.ui.theme.SageVerified
 import com.example.ui.viewmodel.MarketplaceViewModel
 import com.example.ui.viewmodel.UiState
 import com.example.util.LocationHelper
+import com.example.util.PhonePermissionsHelper
 
 @Composable
 fun CustomerDiscoverAndCheckoutScreen(
@@ -99,12 +100,17 @@ fun CustomerDiscoverAndCheckoutScreen(
     isBusy: Boolean,
     onNavigateToDoorSetup: () -> Unit,
     onNavigateToBookings: () -> Unit,
-    onNavigateToAddresses: () -> Unit
+    onNavigateToAddresses: () -> Unit,
+    onNavigateToCart: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var isCheckoutOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var inspectedService by remember { mutableStateOf<CatalogService?>(null) }
+    var permissionSnapshot by remember {
+        mutableStateOf(PhonePermissionsHelper.inspectPermissions(context))
+    }
 
     val detectedLocation by viewModel.detectedLocation.collectAsStateWithLifecycle()
     val isFetchingLocation by viewModel.isFetchingLocation.collectAsStateWithLifecycle()
@@ -113,6 +119,7 @@ fun CustomerDiscoverAndCheckoutScreen(
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        permissionSnapshot = PhonePermissionsHelper.inspectPermissions(context)
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
@@ -132,19 +139,14 @@ fun CustomerDiscoverAndCheckoutScreen(
                     promptForHomeAddressAfterFetch = false
                 )
             } else {
-                locationPermissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
-                )
+                locationPermissionLauncher.launch(PhonePermissionsHelper.startupPermissionsArray())
             }
         }
     }
 
     val liveServices = (servicesState as? UiState.Success)?.data ?: emptyList()
     val displayServices = remember(liveServices) {
-        liveServices.ifEmpty { defaultServiceGridPlaceholders() }
+        mergeWithCanonicalCatalog(liveServices)
     }
     val isShowingFallbackPlaceholders = liveServices.isEmpty()
 
@@ -216,6 +218,16 @@ fun CustomerDiscoverAndCheckoutScreen(
 
     val defaultHaircutId = remember(displayServices) {
         displayServices.firstOrNull { it.category == "HAIRCUTS" }?.id ?: displayServices.firstOrNull()?.id
+    }
+
+    inspectedService?.let { svc ->
+        ServiceDetailBottomSheet(
+            service = svc,
+            isSelected = selectedServiceIds.contains(svc.id),
+            onToggleSelect = { viewModel.toggleServiceSelection(svc.id) },
+            onDismiss = { inspectedService = null },
+            onGoToCart = onNavigateToCart
+        )
     }
 
     Box(
@@ -309,7 +321,8 @@ fun CustomerDiscoverAndCheckoutScreen(
                                     isPlaceholderPreview = isShowingFallbackPlaceholders,
                                     onToggleService = { serviceId ->
                                         viewModel.toggleServiceSelection(serviceId)
-                                    }
+                                    },
+                                    onInspectDetails = { inspectedService = it }
                                 )
                                 if (liveServices.isEmpty() && userAccount.role == "ADMIN") {
                                     Button(
@@ -326,6 +339,18 @@ fun CustomerDiscoverAndCheckoutScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // 3b. Phone Permissions Readiness Card (Location, Notifications, Camera)
+            if (!permissionSnapshot.allGrantedIncludingCamera) {
+                item {
+                    PhonePermissionsPromptCard(
+                        snapshot = permissionSnapshot,
+                        onRequestPermissions = {
+                            locationPermissionLauncher.launch(PhonePermissionsHelper.allFeaturePermissionsArray())
+                        }
+                    )
                 }
             }
 

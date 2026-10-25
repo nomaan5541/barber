@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -86,10 +88,14 @@ import com.example.ui.components.EmptyStateCard
 import com.example.ui.customer.AccountAndSupportScreen
 import com.example.ui.customer.CustomerAddressesScreen
 import com.example.ui.customer.CustomerBookingsScreen
+import com.example.ui.customer.CustomerCartScreen
 import com.example.ui.customer.CustomerDiscoverAndCheckoutScreen
 import com.example.ui.customer.DoorNumberSetupScreen
+import com.example.ui.customer.GuestAccountHubScreen
+import com.example.ui.customer.GuestCartScreen
 import com.example.ui.customer.ProtectedRouteAuthGate
 import com.example.ui.customer.ServiceSelectionLandingScreen
+import com.example.ui.customer.mergeWithCanonicalCatalog
 import com.example.ui.navigation.AppRoutes
 import com.example.ui.navigation.NavTabSpec
 import com.example.ui.navigation.adminNavTabs
@@ -103,9 +109,11 @@ import com.example.ui.viewmodel.ActivePortal
 import com.example.ui.viewmodel.MarketplaceViewModel
 import com.example.ui.viewmodel.UiState
 import com.example.util.DetectedDoorLocation
+import com.example.util.DoorCutNotificationHelper
 import com.example.util.LocationFetchResult
 import com.example.util.LocationHelper
 import com.example.util.PendingDoorAddressDraft
+import com.example.util.PhonePermissionsHelper
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -119,6 +127,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DoorCutNotificationHelper.ensureChannel(this)
         enableEdgeToEdge()
         setContent {
             DoorCutTheme {
@@ -202,14 +211,12 @@ fun DoorCutRootNavigation(
         hasLocationPermissionState = LocationHelper.hasLocationPermission(context)
         if (hasLocationPermissionState) {
             triggerLaunchCoordinateFetch()
-        } else if (!hasRequestedLaunchPermission) {
+        }
+        val startupPerms = PhonePermissionsHelper.startupPermissionsArray()
+        val snap = PhonePermissionsHelper.inspectPermissions(context)
+        if ((!snap.hasAnyLocation || !snap.hasNotifications) && !hasRequestedLaunchPermission) {
             hasRequestedLaunchPermission = true
-            launchPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
+            launchPermissionLauncher.launch(startupPerms)
         }
     }
 
@@ -218,12 +225,7 @@ fun DoorCutRootNavigation(
         if (hasLocationPermissionState) {
             triggerLaunchCoordinateFetch()
         } else {
-            launchPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
+            launchPermissionLauncher.launch(PhonePermissionsHelper.startupPermissionsArray())
         }
     }
 
@@ -241,6 +243,7 @@ fun DoorCutRootNavigation(
                 if (updated.contains(serviceId)) updated.remove(serviceId) else updated.add(serviceId)
                 guestSelectedServiceIds = updated
             },
+            onClearSelections = { guestSelectedServiceIds = emptySet() },
             onRequestCoordinates = requestOrRefreshCoordinates,
             onSaveDoorDraft = { draft -> pendingDoorDraft = draft }
         )
@@ -271,6 +274,7 @@ private fun GuestNavigationHost(
     pendingDoorDraft: PendingDoorAddressDraft?,
     selectedServiceIds: Set<String>,
     onToggleService: (String) -> Unit,
+    onClearSelections: () -> Unit,
     onRequestCoordinates: () -> Unit,
     onSaveDoorDraft: (PendingDoorAddressDraft) -> Unit
 ) {
@@ -285,6 +289,7 @@ private fun GuestNavigationHost(
         showChrome = !hideChrome,
         currentRoute = currentRoute,
         navTabs = customerNavTabs,
+        cartBadgeCount = selectedServiceIds.size,
         onSelectTab = { route -> navController.navigateSingleTopTo(route) },
         topBarActions = {
             TextButton(
@@ -316,8 +321,9 @@ private fun GuestNavigationHost(
                     onToggleService = onToggleService,
                     onOpenDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
                     onRefreshGps = onRequestCoordinates,
-                    onProceedToSignIn = { navController.navigate(AppRoutes.ROUTE_AUTH) },
-                    onAuthSuccess = {}
+                    onProceedToSignIn = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CART) },
+                    onAuthSuccess = {},
+                    onNavigateToCart = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CART) }
                 )
             }
 
@@ -348,6 +354,19 @@ private fun GuestNavigationHost(
                 )
             }
 
+            composable(AppRoutes.ROUTE_CART) {
+                GuestCartScreen(
+                    detectedLocation = launchLocation,
+                    pendingDoorDraft = pendingDoorDraft,
+                    selectedServiceIds = selectedServiceIds,
+                    onToggleService = onToggleService,
+                    onClearCart = onClearSelections,
+                    onBrowseServices = { navController.navigateSingleTopTo(AppRoutes.ROUTE_SERVICE_SELECTION) },
+                    onOpenDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
+                    onAuthSuccess = {}
+                )
+            }
+
             composable(AppRoutes.ROUTE_ADDRESSES) {
                 DoorNumberSetupScreen(
                     detectedLocation = launchLocation,
@@ -369,11 +388,15 @@ private fun GuestNavigationHost(
             }
 
             composable(AppRoutes.ROUTE_PROFILE) {
-                AuthScreen(
-                    onAuthSuccess = {},
+                GuestAccountHubScreen(
                     detectedLocation = launchLocation,
                     pendingDoorDraft = pendingDoorDraft,
-                    onOpenDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) }
+                    selectedServiceCount = selectedServiceIds.size,
+                    onNavigateToServices = { navController.navigateSingleTopTo(AppRoutes.ROUTE_SERVICE_SELECTION) },
+                    onNavigateToCart = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CART) },
+                    onNavigateToDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
+                    onRefreshGps = onRequestCoordinates,
+                    onAuthSuccess = {}
                 )
             }
 
@@ -546,6 +569,7 @@ private fun AuthenticatedNavigationHost(
         showChrome = !hideChrome,
         currentRoute = currentRoute,
         navTabs = activeTabs,
+        cartBadgeCount = selectedServiceIds.size,
         onSelectTab = { route -> navController.navigateSingleTopTo(route) },
         statusBanner = statusBanner,
         onDismissBanner = { viewModel.clearBanner() },
@@ -607,7 +631,9 @@ private fun AuthenticatedNavigationHost(
             }
         }
     ) {
-        val catalogList = (activeServicesState as? UiState.Success)?.data ?: emptyList()
+        val catalogList = remember(activeServicesState) {
+            mergeWithCanonicalCatalog((activeServicesState as? UiState.Success)?.data ?: emptyList())
+        }
 
         NavHost(
             navController = navController,
@@ -632,7 +658,8 @@ private fun AuthenticatedNavigationHost(
                     isBusy = isBusy,
                     onNavigateToDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
                     onNavigateToBookings = { navController.navigateSingleTopTo(AppRoutes.ROUTE_BOOKINGS) },
-                    onNavigateToAddresses = { navController.navigateSingleTopTo(AppRoutes.ROUTE_ADDRESSES) }
+                    onNavigateToAddresses = { navController.navigateSingleTopTo(AppRoutes.ROUTE_ADDRESSES) },
+                    onNavigateToCart = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CART) }
                 )
             }
 
@@ -684,8 +711,31 @@ private fun AuthenticatedNavigationHost(
                     protectedAddresses = protectedAddresses,
                     isBusy = isBusy,
                     onRepeatBookingToDiscover = {
-                        navController.navigateSingleTopTo(AppRoutes.ROUTE_SERVICE_SELECTION)
+                        navController.navigateSingleTopTo(AppRoutes.ROUTE_CART)
                     }
+                )
+            }
+
+            composable(AppRoutes.ROUTE_CART) {
+                CustomerCartScreen(
+                    viewModel = viewModel,
+                    userAccount = userAccount,
+                    allServices = catalogList,
+                    approvedBarbers = approvedBarbers,
+                    addresses = customerAddresses,
+                    serviceAreas = serviceAreas,
+                    slotLocks = slotLocks,
+                    platformConfig = platformConfig,
+                    selectedServiceIds = selectedServiceIds,
+                    selectedBarberId = selectedBarberId,
+                    selectedAddressId = selectedAddressId,
+                    selectedDateKey = selectedDateKey,
+                    selectedStartHour = selectedStartHour,
+                    isBusy = isBusy,
+                    onBrowseServices = { navController.navigateSingleTopTo(AppRoutes.ROUTE_SERVICE_SELECTION) },
+                    onOpenDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
+                    onNavigateToAddresses = { navController.navigateSingleTopTo(AppRoutes.ROUTE_ADDRESSES) },
+                    onBookingConfirmed = { navController.navigateSingleTopTo(AppRoutes.ROUTE_BOOKINGS) }
                 )
             }
 
@@ -702,10 +752,26 @@ private fun AuthenticatedNavigationHost(
                 AccountAndSupportScreen(
                     viewModel = viewModel,
                     userAccount = userAccount,
+                    bookings = customerBookings,
+                    addresses = customerAddresses,
+                    selectedServiceCount = selectedServiceIds.size,
                     tickets = myTickets,
                     allServices = catalogList,
                     serviceAreas = serviceAreas,
                     isBusy = isBusy,
+                    onNavigateToServices = { navController.navigateSingleTopTo(AppRoutes.ROUTE_SERVICE_SELECTION) },
+                    onNavigateToBookings = { navController.navigateSingleTopTo(AppRoutes.ROUTE_BOOKINGS) },
+                    onNavigateToCart = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CART) },
+                    onNavigateToAddresses = { navController.navigateSingleTopTo(AppRoutes.ROUTE_ADDRESSES) },
+                    onNavigateToDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
+                    onSwitchToBarberPortal = {
+                        viewModel.switchPortal(ActivePortal.BARBER)
+                        navController.navigateSingleTopTo(AppRoutes.ROUTE_BARBER_JOBS)
+                    },
+                    onSwitchToAdminPortal = {
+                        viewModel.switchPortal(ActivePortal.ADMIN)
+                        navController.navigateSingleTopTo(AppRoutes.ROUTE_ADMIN_OVERVIEW)
+                    },
                     onSignOut = {
                         performSignOut(context = context, onSignOutComplete = {}, scope = scope)
                     }
@@ -796,6 +862,7 @@ private fun DoorCutScaffoldChrome(
     currentRoute: String,
     navTabs: List<NavTabSpec>,
     onSelectTab: (String) -> Unit,
+    cartBadgeCount: Int = 0,
     statusBanner: String? = null,
     onDismissBanner: () -> Unit = {},
     topBarActions: @Composable () -> Unit = {},
@@ -875,10 +942,29 @@ private fun DoorCutScaffoldChrome(
                                 onClick = { onSelectTab(tab.route) },
                                 colors = navItemColors,
                                 icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = stringResource(tab.labelRes)
-                                    )
+                                    if (tab.route == AppRoutes.ROUTE_CART && cartBadgeCount > 0) {
+                                        BadgedBox(
+                                            badge = {
+                                                Badge(
+                                                    containerColor = EspressoHeaderBg,
+                                                    contentColor = Color(0xFFFFDF9E),
+                                                    modifier = Modifier.testTag("cart_nav_badge")
+                                                ) {
+                                                    Text("$cartBadgeCount")
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = stringResource(tab.labelRes)
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = stringResource(tab.labelRes)
+                                        )
+                                    }
                                 },
                                 label = {
                                     Text(

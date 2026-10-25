@@ -43,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,10 +52,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.BarberProfile
 import com.example.data.model.CatalogService
 import com.example.data.model.CurrencyUtils
@@ -71,6 +74,8 @@ import com.example.ui.theme.BrassGold
 import com.example.ui.theme.EspressoHeaderBg
 import com.example.ui.theme.SageVerified
 import com.example.ui.viewmodel.MarketplaceViewModel
+import com.example.util.CustomerPreferencesStore
+import com.example.util.DoorCutNotificationHelper
 import com.example.util.LocationHelper
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -89,11 +94,16 @@ internal fun CustomerCheckoutFlowScreen(
     selectedDateKey: String,
     selectedStartHour: Long?,
     isBusy: Boolean,
+    initialNotesPrefix: String = "",
     onBack: () -> Unit,
     onOpenDoorModal: () -> Unit,
     onNavigateToAddresses: () -> Unit,
     onBookingConfirmed: () -> Unit
 ) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { CustomerPreferencesStore.ensureLoaded(context) }
+    val prefs by CustomerPreferencesStore.state.collectAsStateWithLifecycle()
+
     var notes by remember { mutableStateOf("") }
     var acceptedTerms by remember { mutableStateOf(true) }
 
@@ -109,7 +119,7 @@ internal fun CustomerCheckoutFlowScreen(
     val eligibleBarbers = remember(rankedBarbers, selectedServices) {
         val reqIds = selectedServices.map { it.id }
         rankedBarbers.filter { (b, _) ->
-            b.isOnline && (b.serviceIds.isEmpty() || b.serviceIds.containsAll(reqIds))
+            b.isOnline && b.supportsRequestedServices(reqIds)
         }
     }
 
@@ -452,11 +462,30 @@ internal fun CustomerCheckoutFlowScreen(
             }
         }
 
+        // Step 4: Doorstep Card POS / UPI QR / Cash Preference
+        DoorstepCardAndPaymentSelector(
+            selectedOption = prefs.paymentOption,
+            savedCardLabel = prefs.savedCardLabel,
+            savedCardLast4 = prefs.savedCardLast4,
+            savedUpiId = prefs.savedUpiId,
+            onSelectOption = { opt ->
+                CustomerPreferencesStore.update(context) { it.copy(paymentOption = opt) }
+            },
+            onUpdateCardDetails = { label, last4 ->
+                CustomerPreferencesStore.update(context) {
+                    it.copy(savedCardLabel = label, savedCardLast4 = last4)
+                }
+            },
+            onUpdateUpiId = { upi ->
+                CustomerPreferencesStore.update(context) { it.copy(savedUpiId = upi) }
+            }
+        )
+
         // Grooming Style Notes
         OutlinedTextField(
             value = notes,
             onValueChange = { notes = it },
-            label = { Text("Grooming Notes (e.g., mid skin fade, keep crown length)") },
+            label = { Text("Grooming Notes (e.g., normal head cut, traditional side-part, mid fade)") },
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth()
         )
@@ -485,7 +514,7 @@ internal fun CustomerCheckoutFlowScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = acceptedTerms, onCheckedChange = { acceptedTerms = it })
                     Text(
-                        text = "I agree to pay ${CurrencyUtils.formatRupees(barberPayablePaise)} directly to the barber after service",
+                        text = "I agree to pay ${CurrencyUtils.formatRupees(barberPayablePaise)} directly to the barber after service (${prefs.paymentOption.title})",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium
                     )
@@ -503,6 +532,12 @@ internal fun CustomerCheckoutFlowScreen(
         Button(
             onClick = {
                 if (activeAddress != null && chosenBarber != null && selectedStartHour != null) {
+                    val effectivePrefix = initialNotesPrefix.ifBlank { prefs.buildBookingPreferencesPrefix() }
+                    val combinedNotes = if (notes.isBlank()) {
+                        effectivePrefix
+                    } else {
+                        "$effectivePrefix • $notes"
+                    }
                     viewModel.confirmZeroFeeBooking(
                         customerName = userAccount.name,
                         customerPhone = userAccount.phone.ifBlank { "Shared on visit" },
@@ -513,9 +548,16 @@ internal fun CustomerCheckoutFlowScreen(
                         barberCommissionPaise = barberCommissionPaise,
                         dateKey = selectedDateKey,
                         startHour = selectedStartHour,
-                        customerNotes = notes,
+                        customerNotes = combinedNotes,
                         policySnapshot = platformConfig.policyText,
-                        onSuccess = { onBookingConfirmed() }
+                        onSuccess = {
+                            DoorCutNotificationHelper.sendVisitNotification(
+                                context = context,
+                                title = "DoorCut Home Visit Reserved",
+                                message = "${chosenBarber.name} booked for ${CurrencyUtils.formatHourSlot(selectedStartHour)} on $selectedDateKey • ₹0 Booking Fee"
+                            )
+                            onBookingConfirmed()
+                        }
                     )
                 }
             },

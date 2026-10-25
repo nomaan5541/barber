@@ -1,5 +1,8 @@
 package com.example.ui.customer
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Schedule
@@ -105,107 +109,20 @@ import com.example.ui.theme.SageVerified
 import com.example.util.DetectedDoorLocation
 import com.example.util.LocationHelper
 import com.example.util.PendingDoorAddressDraft
+import com.example.util.PhonePermissionsHelper
 
 /**
- * Structured Service Grid placeholder items matching the canonical grooming catalog IDs.
- * Displayed on the Service Selection landing screen prior to authentication or while catalog syncs,
- * ensuring immediate visual clarity for Haircutting, Beard Sculpting, Hair Care, Facial, and Home Combos.
+ * Complete Service Grid items matching the canonical grooming catalog IDs — including
+ * Normal Head Cut, Traditional Haircut (Side-Part / Fauji), Classic Scissor Cut, Skin Fade,
+ * Beard Sculpting, Traditional & Hot Towel Shaves, Champi Massage, Detan Facial, and Home Combos.
  */
-fun defaultServiceGridPlaceholders(): List<CatalogService> = listOf(
-    CatalogService(
-        id = "svc_classic_cut",
-        name = "Classic Scissor & Clipper Haircut",
-        category = "HAIRCUTS",
-        description = "Tailored scissor & clipper haircut with neckline taper and clean home cape setup.",
-        pricePaise = 30000L,
-        durationMinutes = 30L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 1L
-    ),
-    CatalogService(
-        id = "svc_skin_fade",
-        name = "Zero / Mid / High Skin Fade",
-        category = "HAIRCUTS",
-        description = "Seamless razor-sharp skin fade with crisp hairline detailing by fade specialists.",
-        pricePaise = 35000L,
-        durationMinutes = 40L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 2L
-    ),
-    CatalogService(
-        id = "svc_beard_trim",
-        name = "Beard Sculpting & Razor Line-Up",
-        category = "BEARD_MOUSTACHE",
-        description = "Symmetrical beard shaping, sharp cheek line-up, and neckline finish.",
-        pricePaise = 15000L,
-        durationMinutes = 20L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 3L
-    ),
-    CatalogService(
-        id = "svc_clean_shave",
-        name = "Hot Towel Luxury Clean Shave",
-        category = "BEARD_MOUSTACHE",
-        description = "Rich lather straight-razor shave with soothing post-shave balm.",
-        pricePaise = 18000L,
-        durationMinutes = 25L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 4L
-    ),
-    CatalogService(
-        id = "svc_hair_wash",
-        name = "Refreshing Hair Wash & Blow Dry",
-        category = "HAIR_CARE",
-        description = "Deep cleansing shampoo rinse and salon-styled blow dry finish.",
-        pricePaise = 10000L,
-        durationMinutes = 15L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 5L
-    ),
-    CatalogService(
-        id = "svc_scalp_oil",
-        name = "Ayurvedic Head & Scalp Massage",
-        category = "HAIR_CARE",
-        description = "20-minute stress-relief warm oil massage for scalp rejuvenation.",
-        pricePaise = 20000L,
-        durationMinutes = 20L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 6L
-    ),
-    CatalogService(
-        id = "svc_face_cleanup",
-        name = "Charcoal Detan Face Cleanup",
-        category = "ADD_ONS",
-        description = "Deep pore cleanse, exfoliating scrub, and hydrating charcoal mask.",
-        pricePaise = 35000L,
-        durationMinutes = 30L,
-        isActive = true,
-        isPackage = false,
-        sortOrder = 7L
-    ),
-    CatalogService(
-        id = "svc_pkg_essential",
-        name = "Haircut + Beard + Wash Combo",
-        category = "PACKAGES",
-        description = "Signature at-home package: Precision Haircut, Beard Sculpt & Refreshing Wash.",
-        pricePaise = 55000L,
-        durationMinutes = 60L,
-        isActive = true,
-        isPackage = true,
-        sortOrder = 8L
-    )
-)
+fun defaultServiceGridPlaceholders(): List<CatalogService> = canonicalGroomingCatalog()
 
 /**
  * Landing page for DoorCut (`AppRoutes.ROUTE_SERVICE_SELECTION`) when unauthenticated.
  * Displays live Google Location Services coordinates, Door Number setup link, category filters,
- * and the 2-column Service Selection Grid with interactive service cards & placeholders.
+ * the 2-column Service Selection Grid with Normal & Traditional Haircuts + Detail Sheet,
+ * and Phone Permissions readiness.
  */
 @Composable
 fun ServiceSelectionLandingScreen(
@@ -217,13 +134,29 @@ fun ServiceSelectionLandingScreen(
     onOpenDoorSetup: () -> Unit,
     onRefreshGps: () -> Unit,
     onProceedToSignIn: () -> Unit,
-    onAuthSuccess: () -> Unit
+    onAuthSuccess: () -> Unit,
+    onNavigateToCart: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
     var isSigningIn by remember { mutableStateOf(false) }
     var signInError by remember { mutableStateOf<String?>(null) }
+    var inspectedService by remember { mutableStateOf<CatalogService?>(null) }
+    var permissionSnapshot by remember {
+        mutableStateOf(PhonePermissionsHelper.inspectPermissions(context))
+    }
+
+    val allPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        permissionSnapshot = PhonePermissionsHelper.inspectPermissions(context)
+        val locGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (locGranted) {
+            onRefreshGps()
+        }
+    }
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
@@ -254,6 +187,16 @@ fun ServiceSelectionLandingScreen(
                 longitude = it.longitude
             )
         }
+    }
+
+    inspectedService?.let { svc ->
+        ServiceDetailBottomSheet(
+            service = svc,
+            isSelected = selectedServiceIds.contains(svc.id),
+            onToggleSelect = { onToggleService(svc.id) },
+            onDismiss = { inspectedService = null },
+            onGoToCart = onNavigateToCart
+        )
     }
 
     Box(
@@ -314,13 +257,26 @@ fun ServiceSelectionLandingScreen(
                             services = filteredServices,
                             selectedServiceIds = selectedServiceIds,
                             isPlaceholderPreview = true,
-                            onToggleService = onToggleService
+                            onToggleService = onToggleService,
+                            onInspectDetails = { inspectedService = it }
                         )
                     }
                 }
             }
 
-            // 4. Interactive Google Sign-In Card (Preserves Zero-Trust Auth Invariant)
+            // 4. Phone Permissions Readiness Card (Location, Visit Notifications, Style Camera)
+            if (!permissionSnapshot.allGrantedIncludingCamera) {
+                item {
+                    PhonePermissionsPromptCard(
+                        snapshot = permissionSnapshot,
+                        onRequestPermissions = {
+                            allPermissionsLauncher.launch(PhonePermissionsHelper.allFeaturePermissionsArray())
+                        }
+                    )
+                }
+            }
+
+            // 5. Interactive Google Sign-In Card (Preserves Zero-Trust Auth Invariant)
             item {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -709,6 +665,7 @@ fun ServiceSelectionGrid(
     selectedServiceIds: Set<String>,
     isPlaceholderPreview: Boolean = false,
     onToggleService: (String) -> Unit,
+    onInspectDetails: ((CatalogService) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(
@@ -736,6 +693,7 @@ fun ServiceSelectionGrid(
                             isSelected = selectedServiceIds.contains(service.id),
                             isPlaceholderPreview = isPlaceholderPreview,
                             onToggle = { onToggleService(service.id) },
+                            onInspectDetails = onInspectDetails?.let { cb -> { cb(service) } },
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
@@ -857,6 +815,7 @@ fun ServiceGridCard(
     isSelected: Boolean,
     isPlaceholderPreview: Boolean = false,
     onToggle: () -> Unit,
+    onInspectDetails: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val visual = remember(service.id, service.category, service.name, service.isPackage) {
@@ -916,7 +875,7 @@ fun ServiceGridCard(
                                     colors = listOf(
                                         Color.Black.copy(alpha = 0.38f),
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.72f)
+                                        Color.Black.copy(alpha = 0.76f)
                                     )
                                 )
                             )
@@ -940,34 +899,59 @@ fun ServiceGridCard(
                         )
                     }
 
-                    // Duration Pill (Top-End)
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.72f),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // Info / Details Button (Top-End >=48dp touch target) or Duration Pill
+                    if (onInspectDetails != null) {
+                        IconButton(
+                            onClick = onInspectDetails,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(48.dp)
+                                .testTag("service_details_btn_${service.id}")
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Schedule,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(11.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "${service.durationMinutes}m",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.72f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Info,
+                                    contentDescription = "Details & pricing for ${service.name}",
+                                    tint = Color(0xFFFFDF9E),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.72f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Schedule,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "${service.durationMinutes}m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
 
-                    // Bottom Price + Zero Fee over Scrim
+                    // Bottom Price + Duration + Zero Fee over Scrim
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -976,12 +960,20 @@ fun ServiceGridCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = CurrencyUtils.formatRupees(service.pricePaise),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = CurrencyUtils.formatRupees(service.pricePaise),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "• ${service.durationMinutes}m",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFFFDF9E)
+                            )
+                        }
                         Surface(
                             color = SageVerified.copy(alpha = 0.9f),
                             shape = RoundedCornerShape(50)

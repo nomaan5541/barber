@@ -14,6 +14,7 @@
 
     <string name="nav_discover">Services</string>
     <string name="nav_bookings">Bookings</string>
+    <string name="nav_cart">Cart</string>
     <string name="nav_addresses">Home Door</string>
     <string name="nav_profile">Account</string>
     <string name="nav_barber_jobs">Jobs</string>
@@ -51,12 +52,22 @@
     <string name="cd_gps_radar_icon">Google Location Services GPS coordinate lock</string>
 
     <string name="service_selection_eyebrow">SERVICE SELECTION • AT-HOME MENU</string>
-    <string name="service_selection_title">Select Grooming Services</string>
-    <string name="service_selection_subtitle">Tap services in the grid below • ₹0 customer platform fee on every home visit</string>
-    <string name="service_grid_placeholder_badge">SERVICE PREVIEW</string>
+    <string name="service_selection_title">Haircuts, Beard &amp; Home Grooming</string>
+    <string name="service_selection_subtitle">Tap any cut for full details &amp; pricing • Normal Head Cut, Traditional Haircut, Fades &amp; Combos at ₹0 platform fee</string>
+    <string name="service_grid_placeholder_badge">FULL MENU</string>
     <string name="service_landing_signin_title">Sign in with Google to Pick a Barber &amp; Time Slot</string>
-    <string name="service_landing_signin_desc">Your selected services and GPS door address carry straight into live slot booking.</string>
+    <string name="service_landing_signin_desc">Your selected haircuts, payment preference, and GPS door address carry straight into live slot booking.</string>
     <string name="btn_sign_in_short">Sign In</string>
     <string name="bookings_signin_gate_title">Sign In to View Your Appointments</string>
     <string name="bookings_signin_gate_subtitle">Track live barber arrival, zero-fee receipts, and repeat past haircuts with Google Sign-In.</string>
+
+    <string name="permissions_banner_title">Enable Phone Permissions for Doorstep Dispatch</string>
+    <string name="permissions_banner_subtitle">Allow GPS Location for door coordinates, Notifications for live barber arrival alerts, and Camera for hairstyle references.</string>
+    <string name="permissions_btn_grant_all">Allow Phone Permissions</string>
+    <string name="cart_eyebrow">GROOMING CART &amp; CARD PAY</string>
+    <string name="cart_title">Your Home Grooming Cart</string>
+    <string name="cart_subtitle">Review selected haircuts, choose Card POS / UPI / Cash at door, and lock your barber slot with ₹0 platform fee.</string>
+    <string name="account_eyebrow">MEMBER ACCOUNT &amp; PREFERENCES</string>
+    <string name="account_title">My Account &amp; Past Bookings</string>
+    <string name="account_subtitle">Repeat previous haircuts, manage Card/UPI preferences, phone permissions, saved doors, and grooming style notes.</string>
 </resources>

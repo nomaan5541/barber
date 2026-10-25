@@ -1252,6 +1252,26 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         SeedSvc("svc_pkg_complete", "Executive Complete Grooming Package", "PACKAGES", "Skin Fade Haircut + Razor Beard + Detan Facial Cleanup + Scalp Massage.", 89900L, 90L, true)
     )
 
+    private fun fullMasterCatalogSpecs(): List<SeedSvc> = listOf(
+        SeedSvc("svc_normal_head_cut", "Normal Head Cut", "HAIRCUTS", "Clean, balanced everyday head cut using sanitized clippers & scissors with even side grading and neat top trim.", 19900L, 25L, false),
+        SeedSvc("svc_traditional_cut", "Traditional Haircut (Side-Part / Fauji)", "HAIRCUTS", "Classic Indian barbershop scissor-over-comb haircut with neat side-part, ear contour, and disposable razor neck finish.", 22900L, 30L, false),
+        SeedSvc("svc_classic_cut", "Classic Scissor & Clipper Haircut", "HAIRCUTS", "Tailored executive scissor layering & clipper blend customized to your crown and face shape.", 30000L, 30L, false),
+        SeedSvc("svc_skin_fade", "Zero / Mid / High Skin Fade", "HAIRCUTS", "Seamless foil-shaver & precision guard gradient fade with razor-sharp hairline detailing.", 35000L, 40L, false),
+        SeedSvc("svc_crew_buzz_cut", "Crew Cut / Uniform Buzz Cut", "HAIRCUTS", "Low-maintenance military crew or single-guard buzz cut with sharp temple and nape outline.", 17900L, 20L, false),
+        SeedSvc("svc_kids_cut", "Kids' Gentle Home Haircut", "HAIRCUTS", "Patient, mess-free haircut at home for children under 12 with quiet clippers.", 25000L, 30L, false),
+        SeedSvc("svc_senior_cut", "Senior Comfort Haircut", "HAIRCUTS", "Relaxed, unhurried at-home haircut designed for elders in their favorite armchair.", 25000L, 30L, false),
+        SeedSvc("svc_beard_trim", "Beard Sculpting & Razor Line-Up", "BEARD_MOUSTACHE", "Symmetrical beard shaping, sharp cheek line-up, moustache trim, and neckline finish.", 15000L, 20L, false),
+        SeedSvc("svc_foam_shave", "Traditional Brush & Foam Clean Shave", "BEARD_MOUSTACHE", "Classic antiseptic cream lather shave with fresh single-use blade, alum block & aftershave splash.", 12900L, 20L, false),
+        SeedSvc("svc_clean_shave", "Hot Towel Luxury Clean Shave", "BEARD_MOUSTACHE", "Two-pass rich lather straight-razor shave with aromatic steam towel & cooling balm.", 18000L, 25L, false),
+        SeedSvc("svc_scalp_oil", "Ayurvedic Champi Head & Shoulder Massage", "HAIR_CARE", "20-minute stress-relief warm coconut, almond, or cooling Navratna oil scalp rejuvenation.", 20000L, 20L, false),
+        SeedSvc("svc_hair_wash", "Refreshing Hair Wash & Blow Dry", "HAIR_CARE", "Deep cleansing shampoo rinse and salon-styled blow dry volume finish.", 10000L, 15L, false),
+        SeedSvc("svc_face_cleanup", "Charcoal Detan Face Cleanup", "ADD_ONS", "Deep pore cleanse, walnut exfoliating scrub, and peel-off activated charcoal detan mask.", 35000L, 30L, false),
+        SeedSvc("svc_brow_neck", "Eyebrow, Ear & Neck Detailing", "ADD_ONS", "Crisp finishing touches for eyebrows, ear contour, and clean nape hairline.", 8000L, 10L, false),
+        SeedSvc("svc_pkg_essential", "Normal / Classic Cut + Beard + Wash Combo", "PACKAGES", "Everyday value package: Precision Haircut, Beard Sculpt & Refreshing Hair Wash.", 49900L, 60L, true),
+        SeedSvc("svc_pkg_complete", "Executive Fade + Beard + Detan + Champi", "PACKAGES", "Complete home transformation: Skin Fade + Razor Beard + Charcoal Detan + Champi Massage.", 89900L, 90L, true),
+        SeedSvc("svc_pkg_royal_home", "Groom's & Festive Luxury Home Ritual", "PACKAGES", "95-minute festive grooming ritual: Signature Cut, Hot Towel Shave, Detan Facial, Neck Polish & Styling.", 109900L, 95L, true)
+    )
+
     private data class SeedBarberShop(
         val id: String,
         val name: String,
@@ -1457,8 +1477,8 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
                 )
             }
 
-            // 3. Complete Service Catalog
-            val catalog = canonicalCatalogSpecs()
+            // 3. Complete Service Catalog (All 17 Canonical Haircut & Grooming Services)
+            val catalog = fullMasterCatalogSpecs()
             catalog.forEachIndexed { idx, s ->
                 val svcDoc = db.collection("services").document(s.id)
                 val existingSnap = svcDoc.get().await()
