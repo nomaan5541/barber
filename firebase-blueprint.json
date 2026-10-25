@@ -1,0 +1,319 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Private user account with role and account status.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full display name" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "phone": { "type": "string", "description": "Contact mobile number" },
+        "role": { "type": "string", "enum": ["CUSTOMER", "BARBER", "ADMIN"], "description": "Platform role" },
+        "status": { "type": "string", "enum": ["ACTIVE", "PENDING", "SUSPENDED", "REJECTED"], "description": "Account status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "name", "email", "phone", "role", "status", "createdAt", "updatedAt"]
+    },
+    "BarberProfile": {
+      "title": "BarberProfile",
+      "description": "Public barber & partner barbershop profile, skills, perfection badge, GPS coordinates, schedule, and home-visit eligibility.",
+      "type": "object",
+      "properties": {
+        "barberId": { "type": "string", "description": "Barber UID or admin-created barber ID" },
+        "name": { "type": "string", "description": "Barber display name" },
+        "bio": { "type": "string", "description": "Short biography" },
+        "experienceYears": { "type": "integer", "description": "Years of professional experience" },
+        "approvalStatus": { "type": "string", "enum": ["PENDING", "APPROVED", "SUSPENDED", "REJECTED"], "description": "Admin approval status" },
+        "isOnline": { "type": "boolean", "description": "Working/available toggle" },
+        "ratingAvg": { "type": "number", "description": "Average customer star rating" },
+        "reviewCount": { "type": "integer", "description": "Total approved reviews" },
+        "serviceIds": { "type": "array", "description": "Bounded list of supported service IDs (<= 50)" },
+        "serviceAreaIds": { "type": "array", "description": "Bounded list of covered service area IDs (<= 20)" },
+        "workingDays": { "type": "array", "description": "Bounded list of working weekday strings (<= 7)" },
+        "workStartHour": { "type": "integer", "description": "Daily start hour (0-23)" },
+        "workEndHour": { "type": "integer", "description": "Daily end hour (1-24)" },
+        "breakStartHour": { "type": "integer", "description": "Lunch/break start hour (0-23)" },
+        "breakEndHour": { "type": "integer", "description": "Lunch/break end hour (0-24)" },
+        "travelBufferMinutes": { "type": "integer", "description": "Travel buffer minutes between jobs" },
+        "upiId": { "type": "string", "description": "Optional preferred UPI ID for direct customer payment" },
+        "skills": { "type": "array", "description": "Bounded list of grooming skills & specialties (<= 15)" },
+        "perfectionBadge": { "type": "string", "description": "Signature perfection highlight e.g. 99% Skin Fade Precision" },
+        "shopName": { "type": "string", "description": "Partner barber shop / salon name" },
+        "shopAddress": { "type": "string", "description": "Barber shop locality and street address" },
+        "homeVisitAvailable": { "type": "boolean", "description": "Whether shop/barber dispatches to customer homes" },
+        "latitude": { "type": "number", "description": "Shop/base GPS latitude" },
+        "longitude": { "type": "number", "description": "Shop/base GPS longitude" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["barberId", "name", "bio", "experienceYears", "approvalStatus", "isOnline", "ratingAvg", "reviewCount", "serviceIds", "serviceAreaIds", "workingDays", "workStartHour", "workEndHour", "breakStartHour", "breakEndHour", "travelBufferMinutes", "createdAt", "updatedAt"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Grooming service or combo package in the catalog.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Service name" },
+        "category": { "type": "string", "enum": ["HAIRCUTS", "BEARD_MOUSTACHE", "HAIR_CARE", "ADD_ONS", "PACKAGES"], "description": "Catalog category" },
+        "description": { "type": "string", "description": "Customer-facing service description" },
+        "pricePaise": { "type": "integer", "description": "Base price in integer minor units (paise)" },
+        "durationMinutes": { "type": "integer", "description": "Estimated service duration in minutes" },
+        "isActive": { "type": "boolean", "description": "Whether service can be booked" },
+        "isPackage": { "type": "boolean", "description": "True if combo package" },
+        "instructions": { "type": "string", "description": "Customer-facing home preparation instructions" },
+        "sortOrder": { "type": "integer", "description": "Display sort order" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["name", "category", "description", "pricePaise", "durationMinutes", "isActive", "isPackage", "instructions", "sortOrder", "createdAt", "updatedAt"]
+    },
+    "ServiceArea": {
+      "title": "ServiceArea",
+      "description": "Supported geographic zone and travel fee configuration.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Zone name (e.g., Indiranagar & Koramangala)" },
+        "postalCodes": { "type": "array", "description": "Bounded list of covered PIN codes (<= 30)" },
+        "travelChargePaise": { "type": "integer", "description": "Travel fee in paise" },
+        "maxDistanceKm": { "type": "integer", "description": "Maximum barber travel distance in km" },
+        "isActive": { "type": "boolean", "description": "Whether bookings are enabled in this zone" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["name", "postalCodes", "travelChargePaise", "maxDistanceKm", "isActive", "createdAt", "updatedAt"]
+    },
+    "CustomerAddress": {
+      "title": "CustomerAddress",
+      "description": "Private saved home/office door address with auto-fetched GPS coordinates scoped under customer UID.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "description": "Owner customer UID" },
+        "label": { "type": "string", "enum": ["HOME", "OFFICE", "OTHER"], "description": "Address label" },
+        "flatHouse": { "type": "string", "description": "Particular door, flat, or house number" },
+        "streetArea": { "type": "string", "description": "Auto-fetched street and locality" },
+        "landmark": { "type": "string", "description": "Nearby landmark" },
+        "postalCode": { "type": "string", "description": "Postal/PIN code" },
+        "serviceAreaId": { "type": "string", "description": "Matched serviceArea document ID" },
+        "serviceAreaName": { "type": "string", "description": "Matched zone name" },
+        "accessInstructions": { "type": "string", "description": "Gate or security instructions" },
+        "isDefault": { "type": "boolean", "description": "Default address flag" },
+        "latitude": { "type": "number", "description": "Customer GPS latitude" },
+        "longitude": { "type": "number", "description": "Customer GPS longitude" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["customerId", "label", "flatHouse", "streetArea", "landmark", "postalCode", "serviceAreaId", "serviceAreaName", "accessInstructions", "isDefault", "createdAt", "updatedAt"]
+    },
+    "SlotLock": {
+      "title": "SlotLock",
+      "description": "Deterministic concurrency lock preventing overlapping appointments for the same barber.",
+      "type": "object",
+      "properties": {
+        "barberId": { "type": "string", "description": "Barber ID" },
+        "dateKey": { "type": "string", "description": "YYYY-MM-DD" },
+        "hourSlot": { "type": "integer", "description": "Hour slot (0-23)" },
+        "bookingId": { "type": "string", "description": "Associated booking ID" },
+        "customerId": { "type": "string", "description": "Customer UID holding the lock" },
+        "status": { "type": "string", "enum": ["HELD", "CONFIRMED", "RELEASED"], "description": "Lock state" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["barberId", "dateKey", "hourSlot", "bookingId", "customerId", "status", "createdAt", "updatedAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Core at-home barber booking with ₹0 customer platform fee and platform commission charged from Barber.",
+      "type": "object",
+      "properties": {
+        "bookingNumber": { "type": "string", "description": "Human-readable reference e.g. DC-2026-1042" },
+        "customerId": { "type": "string", "description": "Customer UID" },
+        "customerName": { "type": "string", "description": "Customer name snapshot" },
+        "barberId": { "type": "string", "description": "Assigned barber ID" },
+        "barberName": { "type": "string", "description": "Assigned barber name" },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "SLOT_HELD", "PAYMENT_PENDING", "AWAITING_BARBER", "CONFIRMED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "EXPIRED", "NO_SHOW", "DISPUTED"],
+          "description": "Explicit booking lifecycle state"
+        },
+        "dateKey": { "type": "string", "description": "Appointment date YYYY-MM-DD" },
+        "startHour": { "type": "integer", "description": "Appointment start hour (0-23)" },
+        "durationMinutes": { "type": "integer", "description": "Total snapshotted duration in minutes" },
+        "serviceIds": { "type": "array", "description": "Bounded list of booked service IDs (<= 15)" },
+        "serviceNamesSummary": { "type": "string", "description": "Snapshotted service names & prices breakdown" },
+        "areaName": { "type": "string", "description": "General area/locality visible before full address unlock" },
+        "serviceSubtotalPaise": { "type": "integer", "description": "Snapshotted service subtotal in paise" },
+        "approvedAddOnPaise": { "type": "integer", "description": "Customer-approved extra service amount in paise" },
+        "travelChargePaise": { "type": "integer", "description": "Snapshotted travel charge in paise" },
+        "barberServicePayablePaise": { "type": "integer", "description": "Total payable directly by customer to barber in paise" },
+        "platformBookingFeePaise": { "type": "integer", "description": "Customer platform fee (0 paise — customers pay ₹0 platform fee)" },
+        "totalCustomerCostPaise": { "type": "integer", "description": "Total customer cost (equals barberServicePayablePaise when customer fee is 0)" },
+        "bookingFeeStatus": { "type": "string", "enum": ["ZERO_CUSTOMER_FEE", "UNPAID", "PAID_VERIFIED", "FAILED", "REFUND_PENDING", "REFUNDED"], "description": "Customer fee state (ZERO_CUSTOMER_FEE)" },
+        "bookingFeeTxRef": { "type": "string", "description": "Slot reservation reference" },
+        "barberCommissionPaise": { "type": "integer", "description": "Platform commission charged from the Barber in paise" },
+        "barberNetEarningsPaise": { "type": "integer", "description": "Barber net take-home after platform commission" },
+        "barberCommissionStatus": { "type": "string", "enum": ["PENDING_SETTLEMENT", "SETTLED", "WAIVED"], "description": "Barber commission settlement state" },
+        "directPaymentStatus": { "type": "string", "enum": ["PENDING", "CASH_DECLARED", "UPI_DECLARED", "PARTIAL_DECLARED", "UNPAID_DECLARED", "CUSTOMER_CONFIRMED", "DISPUTED"], "description": "Direct barber payment declaration & customer verification state" },
+        "directPaymentMethod": { "type": "string", "enum": ["NONE", "CASH", "UPI"], "description": "Direct payment method" },
+        "directPaymentDeclaredPaise": { "type": "integer", "description": "Amount declared received by barber in paise" },
+        "directPaymentRef": { "type": "string", "description": "Optional UPI reference or note" },
+        "pendingAddOnServiceId": { "type": "string", "description": "Requested extra service ID awaiting customer approval" },
+        "pendingAddOnName": { "type": "string", "description": "Requested extra service name" },
+        "pendingAddOnPricePaise": { "type": "integer", "description": "Requested extra service price in paise" },
+        "pendingAddOnDurationMin": { "type": "integer", "description": "Requested extra duration in minutes" },
+        "pendingAddOnStatus": { "type": "string", "enum": ["NONE", "REQUESTED", "APPROVED", "DECLINED"], "description": "Extra service approval state" },
+        "customerNotes": { "type": "string", "description": "Appointment instructions" },
+        "cancellationReason": { "type": "string", "description": "Reason for cancellation, rejection, or dispute" },
+        "policySnapshot": { "type": "string", "description": "Accepted cancellation policy snapshot" },
+        "hasReview": { "type": "boolean", "description": "Whether customer submitted a review" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": [
+        "bookingNumber", "customerId", "customerName", "barberId", "barberName", "status",
+        "dateKey", "startHour", "durationMinutes", "serviceIds", "serviceNamesSummary", "areaName",
+        "serviceSubtotalPaise", "approvedAddOnPaise", "travelChargePaise", "barberServicePayablePaise",
+        "platformBookingFeePaise", "totalCustomerCostPaise", "bookingFeeStatus", "bookingFeeTxRef",
+        "directPaymentStatus", "directPaymentMethod", "directPaymentDeclaredPaise", "directPaymentRef",
+        "pendingAddOnServiceId", "pendingAddOnName", "pendingAddOnPricePaise", "pendingAddOnDurationMin",
+        "pendingAddOnStatus", "customerNotes", "cancellationReason", "policySnapshot", "hasReview",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "BookingPrivateAddress": {
+      "title": "BookingPrivateAddress",
+      "description": "Snapshotted full customer door address revealed ONLY to customer, assigned barber on active job, or admin.",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "description": "Parent booking ID" },
+        "customerId": { "type": "string", "description": "Customer UID" },
+        "barberId": { "type": "string", "description": "Assigned barber UID" },
+        "fullAddressSnapshot": { "type": "string", "description": "Complete door/flat, street, landmark, PIN" },
+        "accessInstructions": { "type": "string", "description": "Gate/security instructions" },
+        "customerPhone": { "type": "string", "description": "Customer contact number for visit" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["bookingId", "customerId", "barberId", "fullAddressSnapshot", "accessInstructions", "customerPhone", "createdAt", "updatedAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Customer rating and written review for a completed booking.",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "description": "Completed booking ID" },
+        "customerId": { "type": "string", "description": "Customer UID" },
+        "customerName": { "type": "string", "description": "Customer display name" },
+        "barberId": { "type": "string", "description": "Barber ID" },
+        "rating": { "type": "integer", "description": "Star rating 1 to 5" },
+        "comment": { "type": "string", "description": "Written feedback" },
+        "status": { "type": "string", "enum": ["PUBLISHED", "FLAGGED", "HIDDEN"], "description": "Moderation status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["bookingId", "customerId", "customerName", "barberId", "rating", "comment", "status", "createdAt", "updatedAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer or barber support ticket, safety report, or payment dispute.",
+      "type": "object",
+      "properties": {
+        "createdBy": { "type": "string", "description": "Reporter UID" },
+        "creatorRole": { "type": "string", "enum": ["CUSTOMER", "BARBER"], "description": "Reporter role" },
+        "bookingId": { "type": "string", "description": "Related booking ID or empty" },
+        "category": { "type": "string", "enum": ["PAYMENT_DISPUTE", "LATE_OR_NO_SHOW", "PRICE_DISAGREEMENT", "SAFETY_CONCERN", "REFUND_HELP", "GENERAL"], "description": "Issue category" },
+        "subject": { "type": "string", "description": "Short summary" },
+        "description": { "type": "string", "description": "Detailed report" },
+        "status": { "type": "string", "enum": ["OPEN", "INVESTIGATING", "RESOLVED"], "description": "Ticket status" },
+        "adminResolution": { "type": "string", "description": "Admin resolution notes" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["createdBy", "creatorRole", "bookingId", "category", "subject", "description", "status", "adminResolution", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable administrative audit trail for approvals, overrides, reassignments, and commission updates.",
+      "type": "object",
+      "properties": {
+        "actorId": { "type": "string", "description": "Admin UID" },
+        "action": { "type": "string", "description": "Action identifier" },
+        "entityType": { "type": "string", "description": "Target entity type" },
+        "entityId": { "type": "string", "description": "Target entity ID" },
+        "reason": { "type": "string", "description": "Recorded reason for action" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["actorId", "action", "entityType", "entityId", "reason", "createdAt"]
+    },
+    "PlatformConfig": {
+      "title": "PlatformConfig",
+      "description": "Admin-managed barber commission rules (₹0 customer fee) and cancellation policy.",
+      "type": "object",
+      "properties": {
+        "bookingFeeType": { "type": "string", "enum": ["BARBER_COMMISSION_PERCENT", "BARBER_FLAT_FEE", "FIXED", "PERCENTAGE"], "description": "Barber commission mode" },
+        "fixedBookingFeePaise": { "type": "integer", "description": "Customer fee (0 paise)" },
+        "percentageBookingFeeBps": { "type": "integer", "description": "Customer percentage fee (0 bps)" },
+        "barberCommissionBps": { "type": "integer", "description": "Platform commission charged from Barber in basis points (e.g. 1500 = 15%)" },
+        "barberFlatFeePaise": { "type": "integer", "description": "Flat per-job fee charged from Barber in paise" },
+        "freeCancellationCutoffHours": { "type": "integer", "description": "Cutoff hours before appointment for free cancellation" },
+        "slotHoldMinutes": { "type": "integer", "description": "Minutes a slot is held during checkout" },
+        "policyText": { "type": "string", "description": "Customer-facing cancellation and zero-fee policy text" },
+        "maintenanceMode": { "type": "boolean", "description": "Platform maintenance flag" },
+        "updatedBy": { "type": "string", "description": "UID of admin who updated settings" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["bookingFeeType", "fixedBookingFeePaise", "percentageBookingFeeBps", "freeCancellationCutoffHours", "slotHoldMinutes", "policyText", "maintenanceMode", "updatedBy", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Private user account profiles and RBAC state."
+    },
+    "/users/{userId}/addresses/{addressId}": {
+      "schema": "CustomerAddress",
+      "description": "Customer private saved home/office door addresses with GPS coordinates."
+    },
+    "/barberProfiles/{barberId}": {
+      "schema": "BarberProfile",
+      "description": "Barber & partner barbershop profiles, skills, coordinates, schedules, and approval status."
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Service catalog and combo packages."
+    },
+    "/serviceAreas/{areaId}": {
+      "schema": "ServiceArea",
+      "description": "Supported service zones and travel rules."
+    },
+    "/slotLocks/{lockId}": {
+      "schema": "SlotLock",
+      "description": "Atomic barber time-slot reservations."
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Customer-barber appointments with zero customer fee and barber commission tracking."
+    },
+    "/bookings/{bookingId}/privateDetails/{detailId}": {
+      "schema": "BookingPrivateAddress",
+      "description": "Protected full customer home door address snapshot."
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Customer ratings and reviews."
+    },
+    "/supportTickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Support tickets and payment disputes."
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Append-only admin audit logs."
+    },
+    "/platformConfig/{configId}": {
+      "schema": "PlatformConfig",
+      "description": "Global barber commission and cancellation settings."
+    }
+  }
+}

@@ -1,0 +1,720 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 0. Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    // Bootstrapped verified owner email + explicit admins collection
+    function isAdmin() {
+      return isSignedIn() && (
+        ('email' in request.auth.token &&
+         'email_verified' in request.auth.token &&
+         request.auth.token.email == 'nomaankhannfs2@gmail.com' &&
+         request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'name', 'email', 'phone', 'role', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['userId', 'name', 'email', 'phone', 'role', 'status', 'createdAt', 'updatedAt']) &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 150 &&
+             data.phone is string && data.phone.size() <= 20 &&
+             data.role in ['CUSTOMER', 'BARBER', 'ADMIN'] &&
+             data.status in ['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED'] &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidCustomerAddress(data) {
+      return data.keys().hasAll(['customerId', 'label', 'flatHouse', 'streetArea', 'landmark', 'postalCode', 'serviceAreaId', 'serviceAreaName', 'accessInstructions', 'isDefault', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['customerId', 'label', 'flatHouse', 'streetArea', 'landmark', 'postalCode', 'serviceAreaId', 'serviceAreaName', 'accessInstructions', 'isDefault', 'latitude', 'longitude', 'createdAt', 'updatedAt']) &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.label in ['HOME', 'OFFICE', 'OTHER'] &&
+             data.flatHouse is string && data.flatHouse.size() >= 1 && data.flatHouse.size() <= 120 &&
+             data.streetArea is string && data.streetArea.size() >= 1 && data.streetArea.size() <= 200 &&
+             data.landmark is string && data.landmark.size() <= 150 &&
+             data.postalCode is string && data.postalCode.size() >= 4 && data.postalCode.size() <= 12 &&
+             data.serviceAreaId is string && data.serviceAreaId.size() <= 128 &&
+             data.serviceAreaName is string && data.serviceAreaName.size() <= 120 &&
+             data.accessInstructions is string && data.accessInstructions.size() <= 300 &&
+             data.isDefault is bool &&
+             (!('latitude' in data) || (data.latitude is number && data.latitude >= -90 && data.latitude <= 90)) &&
+             (!('longitude' in data) || (data.longitude is number && data.longitude >= -180 && data.longitude <= 180)) &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidBarberProfile(data) {
+      return data.keys().hasAll(['barberId', 'name', 'bio', 'experienceYears', 'approvalStatus', 'isOnline', 'ratingAvg', 'reviewCount', 'serviceIds', 'serviceAreaIds', 'workingDays', 'workStartHour', 'workEndHour', 'breakStartHour', 'breakEndHour', 'travelBufferMinutes', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly([
+               'barberId', 'name', 'bio', 'experienceYears', 'approvalStatus', 'isOnline', 'ratingAvg', 'reviewCount',
+               'serviceIds', 'serviceAreaIds', 'workingDays', 'workStartHour', 'workEndHour', 'breakStartHour', 'breakEndHour',
+               'travelBufferMinutes', 'upiId', 'skills', 'perfectionBadge', 'shopName', 'shopAddress',
+               'homeVisitAvailable', 'latitude', 'longitude', 'createdAt', 'updatedAt'
+             ]) &&
+             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.bio is string && data.bio.size() <= 500 &&
+             data.experienceYears is int && data.experienceYears >= 0 && data.experienceYears <= 60 &&
+             data.approvalStatus in ['PENDING', 'APPROVED', 'SUSPENDED', 'REJECTED'] &&
+             data.isOnline is bool &&
+             (data.ratingAvg is number) && data.ratingAvg >= 0 && data.ratingAvg <= 5 &&
+             data.reviewCount is int && data.reviewCount >= 0 &&
+             data.serviceIds is list && data.serviceIds.size() <= 50 && (data.serviceIds.size() == 0 || data.serviceIds[0] is string) &&
+             data.serviceAreaIds is list && data.serviceAreaIds.size() <= 20 && (data.serviceAreaIds.size() == 0 || data.serviceAreaIds[0] is string) &&
+             data.workingDays is list && data.workingDays.size() <= 7 && (data.workingDays.size() == 0 || data.workingDays[0] is string) &&
+             data.workStartHour is int && data.workStartHour >= 0 && data.workStartHour <= 23 &&
+             data.workEndHour is int && data.workEndHour >= 1 && data.workEndHour <= 24 &&
+             data.breakStartHour is int && data.breakStartHour >= 0 && data.breakStartHour <= 23 &&
+             data.breakEndHour is int && data.breakEndHour >= 0 && data.breakEndHour <= 24 &&
+             data.travelBufferMinutes is int && data.travelBufferMinutes >= 0 && data.travelBufferMinutes <= 180 &&
+             (!('upiId' in data) || (data.upiId is string && data.upiId.size() <= 100)) &&
+             (!('skills' in data) || (data.skills is list && data.skills.size() <= 15 && (data.skills.size() == 0 || data.skills[0] is string))) &&
+             (!('perfectionBadge' in data) || (data.perfectionBadge is string && data.perfectionBadge.size() <= 100)) &&
+             (!('shopName' in data) || (data.shopName is string && data.shopName.size() <= 120)) &&
+             (!('shopAddress' in data) || (data.shopAddress is string && data.shopAddress.size() <= 240)) &&
+             (!('homeVisitAvailable' in data) || (data.homeVisitAvailable is bool)) &&
+             (!('latitude' in data) || (data.latitude is number && data.latitude >= -90 && data.latitude <= 90)) &&
+             (!('longitude' in data) || (data.longitude is number && data.longitude >= -180 && data.longitude <= 180)) &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidService(data) {
+      return data.keys().hasAll(['name', 'category', 'description', 'pricePaise', 'durationMinutes', 'isActive', 'isPackage', 'instructions', 'sortOrder', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['name', 'category', 'description', 'pricePaise', 'durationMinutes', 'isActive', 'isPackage', 'instructions', 'sortOrder', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.category in ['HAIRCUTS', 'BEARD_MOUSTACHE', 'HAIR_CARE', 'ADD_ONS', 'PACKAGES'] &&
+             data.description is string && data.description.size() <= 500 &&
+             data.pricePaise is int && data.pricePaise >= 0 && data.pricePaise <= 10000000 &&
+             data.durationMinutes is int && data.durationMinutes >= 5 && data.durationMinutes <= 480 &&
+             data.isActive is bool &&
+             data.isPackage is bool &&
+             data.instructions is string && data.instructions.size() <= 300 &&
+             data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 10000 &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidServiceArea(data) {
+      return data.keys().hasAll(['name', 'postalCodes', 'travelChargePaise', 'maxDistanceKm', 'isActive', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['name', 'postalCodes', 'travelChargePaise', 'maxDistanceKm', 'isActive', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.postalCodes is list && data.postalCodes.size() <= 30 && (data.postalCodes.size() == 0 || data.postalCodes[0] is string) &&
+             data.travelChargePaise is int && data.travelChargePaise >= 0 && data.travelChargePaise <= 500000 &&
+             data.maxDistanceKm is int && data.maxDistanceKm >= 1 && data.maxDistanceKm <= 100 &&
+             data.isActive is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidSlotLock(data) {
+      return data.keys().hasAll(['barberId', 'dateKey', 'hourSlot', 'bookingId', 'customerId', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['barberId', 'dateKey', 'hourSlot', 'bookingId', 'customerId', 'status', 'createdAt', 'updatedAt']) &&
+             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
+             data.dateKey is string && data.dateKey.size() == 10 &&
+             data.hourSlot is int && data.hourSlot >= 0 && data.hourSlot <= 23 &&
+             data.bookingId is string && data.bookingId.size() >= 1 && data.bookingId.size() <= 128 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.status in ['HELD', 'CONFIRMED', 'RELEASED'] &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll([
+               'bookingNumber', 'customerId', 'customerName', 'barberId', 'barberName', 'status',
+               'dateKey', 'startHour', 'durationMinutes', 'serviceIds', 'serviceNamesSummary', 'areaName',
+               'serviceSubtotalPaise', 'approvedAddOnPaise', 'travelChargePaise', 'barberServicePayablePaise',
+               'platformBookingFeePaise', 'totalCustomerCostPaise', 'bookingFeeStatus', 'bookingFeeTxRef',
+               'directPaymentStatus', 'directPaymentMethod', 'directPaymentDeclaredPaise', 'directPaymentRef',
+               'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise', 'pendingAddOnDurationMin',
+               'pendingAddOnStatus', 'customerNotes', 'cancellationReason', 'policySnapshot', 'hasReview',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'bookingNumber', 'customerId', 'customerName', 'barberId', 'barberName', 'status',
+               'dateKey', 'startHour', 'durationMinutes', 'serviceIds', 'serviceNamesSummary', 'areaName',
+               'serviceSubtotalPaise', 'approvedAddOnPaise', 'travelChargePaise', 'barberServicePayablePaise',
+               'platformBookingFeePaise', 'totalCustomerCostPaise', 'bookingFeeStatus', 'bookingFeeTxRef',
+               'barberCommissionPaise', 'barberNetEarningsPaise', 'barberCommissionStatus',
+               'directPaymentStatus', 'directPaymentMethod', 'directPaymentDeclaredPaise', 'directPaymentRef',
+               'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise', 'pendingAddOnDurationMin',
+               'pendingAddOnStatus', 'customerNotes', 'cancellationReason', 'policySnapshot', 'hasReview',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.bookingNumber is string && data.bookingNumber.size() >= 3 && data.bookingNumber.size() <= 40 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
+             data.barberName is string && data.barberName.size() >= 1 && data.barberName.size() <= 100 &&
+             data.status in ['DRAFT', 'SLOT_HELD', 'PAYMENT_PENDING', 'AWAITING_BARBER', 'CONFIRMED', 'ON_THE_WAY', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_SHOW', 'DISPUTED'] &&
+             data.dateKey is string && data.dateKey.size() == 10 &&
+             data.startHour is int && data.startHour >= 0 && data.startHour <= 23 &&
+             data.durationMinutes is int && data.durationMinutes >= 5 && data.durationMinutes <= 600 &&
+             data.serviceIds is list && data.serviceIds.size() >= 1 && data.serviceIds.size() <= 15 && data.serviceIds[0] is string &&
+             data.serviceNamesSummary is string && data.serviceNamesSummary.size() >= 1 && data.serviceNamesSummary.size() <= 500 &&
+             data.areaName is string && data.areaName.size() >= 1 && data.areaName.size() <= 120 &&
+             data.serviceSubtotalPaise is int && data.serviceSubtotalPaise >= 0 &&
+             data.approvedAddOnPaise is int && data.approvedAddOnPaise >= 0 &&
+             data.travelChargePaise is int && data.travelChargePaise >= 0 &&
+             data.barberServicePayablePaise is int &&
+             data.barberServicePayablePaise == (data.serviceSubtotalPaise + data.approvedAddOnPaise + data.travelChargePaise) &&
+             data.platformBookingFeePaise is int && data.platformBookingFeePaise >= 0 &&
+             data.totalCustomerCostPaise is int &&
+             data.totalCustomerCostPaise == (data.barberServicePayablePaise + data.platformBookingFeePaise) &&
+             data.bookingFeeStatus in ['ZERO_CUSTOMER_FEE', 'UNPAID', 'PAID_VERIFIED', 'FAILED', 'REFUND_PENDING', 'REFUNDED'] &&
+             data.bookingFeeTxRef is string && data.bookingFeeTxRef.size() <= 120 &&
+             (!('barberCommissionPaise' in data) || (data.barberCommissionPaise is int && data.barberCommissionPaise >= 0 && data.barberCommissionPaise <= data.barberServicePayablePaise)) &&
+             (!('barberNetEarningsPaise' in data) || (data.barberNetEarningsPaise is int && data.barberNetEarningsPaise >= 0)) &&
+             (!('barberCommissionStatus' in data) || (data.barberCommissionStatus in ['PENDING_SETTLEMENT', 'SETTLED', 'WAIVED'])) &&
+             data.directPaymentStatus in ['PENDING', 'CASH_DECLARED', 'UPI_DECLARED', 'PARTIAL_DECLARED', 'UNPAID_DECLARED', 'CUSTOMER_CONFIRMED', 'DISPUTED'] &&
+             data.directPaymentMethod in ['NONE', 'CASH', 'UPI'] &&
+             data.directPaymentDeclaredPaise is int && data.directPaymentDeclaredPaise >= 0 &&
+             data.directPaymentRef is string && data.directPaymentRef.size() <= 120 &&
+             data.pendingAddOnServiceId is string && data.pendingAddOnServiceId.size() <= 128 &&
+             data.pendingAddOnName is string && data.pendingAddOnName.size() <= 100 &&
+             data.pendingAddOnPricePaise is int && data.pendingAddOnPricePaise >= 0 &&
+             data.pendingAddOnDurationMin is int && data.pendingAddOnDurationMin >= 0 && data.pendingAddOnDurationMin <= 300 &&
+             data.pendingAddOnStatus in ['NONE', 'REQUESTED', 'APPROVED', 'DECLINED'] &&
+             data.customerNotes is string && data.customerNotes.size() <= 500 &&
+             data.cancellationReason is string && data.cancellationReason.size() <= 300 &&
+             data.policySnapshot is string && data.policySnapshot.size() <= 500 &&
+             data.hasReview is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidBookingPrivateAddress(data) {
+      return data.keys().hasAll(['bookingId', 'customerId', 'barberId', 'fullAddressSnapshot', 'accessInstructions', 'customerPhone', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['bookingId', 'customerId', 'barberId', 'fullAddressSnapshot', 'accessInstructions', 'customerPhone', 'createdAt', 'updatedAt']) &&
+             data.bookingId is string && data.bookingId.size() >= 1 && data.bookingId.size() <= 128 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
+             data.fullAddressSnapshot is string && data.fullAddressSnapshot.size() >= 3 && data.fullAddressSnapshot.size() <= 500 &&
+             data.accessInstructions is string && data.accessInstructions.size() <= 300 &&
+             data.customerPhone is string && data.customerPhone.size() <= 20 &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['bookingId', 'customerId', 'customerName', 'barberId', 'rating', 'comment', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['bookingId', 'customerId', 'customerName', 'barberId', 'rating', 'comment', 'status', 'createdAt', 'updatedAt']) &&
+             data.bookingId is string && data.bookingId.size() >= 1 && data.bookingId.size() <= 128 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
+             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() <= 600 &&
+             data.status in ['PUBLISHED', 'FLAGGED', 'HIDDEN'] &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidSupportTicket(data) {
+      return data.keys().hasAll(['createdBy', 'creatorRole', 'bookingId', 'category', 'subject', 'description', 'status', 'adminResolution', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['createdBy', 'creatorRole', 'bookingId', 'category', 'subject', 'description', 'status', 'adminResolution', 'createdAt', 'updatedAt']) &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.creatorRole in ['CUSTOMER', 'BARBER'] &&
+             data.bookingId is string && data.bookingId.size() <= 128 &&
+             data.category in ['PAYMENT_DISPUTE', 'LATE_OR_NO_SHOW', 'PRICE_DISAGREEMENT', 'SAFETY_CONCERN', 'REFUND_HELP', 'GENERAL'] &&
+             data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 150 &&
+             data.description is string && data.description.size() >= 1 && data.description.size() <= 1000 &&
+             data.status in ['OPEN', 'INVESTIGATING', 'RESOLVED'] &&
+             data.adminResolution is string && data.adminResolution.size() <= 1000 &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['actorId', 'action', 'entityType', 'entityId', 'reason', 'createdAt']) &&
+             data.keys().hasOnly(['actorId', 'action', 'entityType', 'entityId', 'reason', 'createdAt']) &&
+             data.actorId is string && data.actorId.size() >= 1 && data.actorId.size() <= 128 &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 100 &&
+             data.entityType is string && data.entityType.size() >= 1 && data.entityType.size() <= 60 &&
+             data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 128 &&
+             data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 500 &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    function isValidPlatformConfig(data) {
+      return data.keys().hasAll(['bookingFeeType', 'fixedBookingFeePaise', 'percentageBookingFeeBps', 'freeCancellationCutoffHours', 'slotHoldMinutes', 'policyText', 'maintenanceMode', 'updatedBy', 'updatedAt']) &&
+             data.keys().hasOnly([
+               'bookingFeeType', 'fixedBookingFeePaise', 'percentageBookingFeeBps',
+               'barberCommissionBps', 'barberFlatFeePaise',
+               'freeCancellationCutoffHours', 'slotHoldMinutes', 'policyText', 'maintenanceMode', 'updatedBy', 'updatedAt'
+             ]) &&
+             data.bookingFeeType in ['BARBER_COMMISSION_PERCENT', 'BARBER_FLAT_FEE', 'FIXED', 'PERCENTAGE'] &&
+             data.fixedBookingFeePaise is int && data.fixedBookingFeePaise >= 0 && data.fixedBookingFeePaise <= 500000 &&
+             data.percentageBookingFeeBps is int && data.percentageBookingFeeBps >= 0 && data.percentageBookingFeeBps <= 5000 &&
+             (!('barberCommissionBps' in data) || (data.barberCommissionBps is int && data.barberCommissionBps >= 0 && data.barberCommissionBps <= 5000)) &&
+             (!('barberFlatFeePaise' in data) || (data.barberFlatFeePaise is int && data.barberFlatFeePaise >= 0 && data.barberFlatFeePaise <= 500000)) &&
+             data.freeCancellationCutoffHours is int && data.freeCancellationCutoffHours >= 0 && data.freeCancellationCutoffHours <= 72 &&
+             data.slotHoldMinutes is int && data.slotHoldMinutes >= 1 && data.slotHoldMinutes <= 60 &&
+             data.policyText is string && data.policyText.size() >= 5 && data.policyText.size() <= 1000 &&
+             data.maintenanceMode is bool &&
+             data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // --- Collection Rules ---
+
+    // Admins Registry
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // 1. Users (PII Isolated: Owner or Admin only)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUser(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       (
+                         isAdmin() ||
+                         (
+                           request.auth.uid == userId &&
+                           incoming().userId == request.auth.uid &&
+                           (
+                             (incoming().role == 'CUSTOMER' && incoming().status == 'ACTIVE') ||
+                             (incoming().role == 'BARBER' && incoming().status == 'PENDING')
+                           )
+                         )
+                       );
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUser(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         // Self-update contact info or apply to become a PENDING barber (cannot self-approve or escalate to ADMIN)
+                         (
+                           request.auth.uid == userId &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'role', 'status', 'updatedAt']) &&
+                           (
+                             (incoming().role == existing().role && incoming().status == existing().status) ||
+                             (existing().role == 'CUSTOMER' && incoming().role == 'BARBER' && incoming().status == 'PENDING')
+                           )
+                         )
+                       );
+
+      allow delete: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+
+      // Customer Saved Door/Home Addresses Subcollection (PII Isolated)
+      match /addresses/{addressId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(addressId) && (request.auth.uid == userId || isAdmin());
+        allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(addressId) &&
+                         request.auth.uid == userId &&
+                         incoming().customerId == request.auth.uid &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidCustomerAddress(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(addressId) &&
+                         isValidCustomerAddress(incoming()) &&
+                         request.auth.uid == userId &&
+                         incoming().customerId == existing().customerId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'label', 'flatHouse', 'streetArea', 'landmark', 'postalCode',
+                           'serviceAreaId', 'serviceAreaName', 'accessInstructions', 'isDefault',
+                           'latitude', 'longitude', 'updatedAt'
+                         ]);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(addressId) && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    // 2. Barber Profiles (Public discovery for APPROVED barbers; self-access for own barber profile; full Admin control)
+    match /barberProfiles/{barberId} {
+      allow get: if isSignedIn() && isValidId(barberId) && (
+                   resource == null ||
+                   existing().approvalStatus == 'APPROVED' ||
+                   request.auth.uid == barberId ||
+                   isAdmin()
+                 );
+      allow list: if isSignedIn() && (
+                    existing().approvalStatus == 'APPROVED' ||
+                    existing().barberId == request.auth.uid ||
+                    isAdmin()
+                  );
+
+      allow create: if isSignedIn() &&
+                       isValidId(barberId) &&
+                       isValidBarberProfile(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       (
+                         isAdmin() ||
+                         (
+                           request.auth.uid == barberId &&
+                           incoming().barberId == request.auth.uid &&
+                           incoming().approvalStatus == 'PENDING'
+                         ) ||
+                         // One-time initial seed for canonical showcase partner barber shops when database is fresh
+                         (
+                           barberId in ['barber_arman_master', 'barber_vikram_stylist', 'barber_danish_pro', 'barber_kabir_atelier'] &&
+                           request.auth.uid != barberId &&
+                           incoming().barberId == barberId &&
+                           incoming().approvalStatus == 'APPROVED' &&
+                           !exists(/databases/$(database)/documents/barberProfiles/$(barberId))
+                         )
+                       );
+
+      allow update: if isSignedIn() &&
+                       isValidId(barberId) &&
+                       isValidBarberProfile(incoming()) &&
+                       incoming().barberId == existing().barberId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         // Barber updates own schedule, bio, availability, skills, shop info, UPI, or services without altering approvalStatus/ratings
+                         (
+                           request.auth.uid == barberId &&
+                           incoming().approvalStatus == existing().approvalStatus &&
+                           incoming().ratingAvg == existing().ratingAvg &&
+                           incoming().reviewCount == existing().reviewCount &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'name', 'bio', 'experienceYears', 'isOnline', 'serviceIds', 'serviceAreaIds',
+                             'workingDays', 'workStartHour', 'workEndHour', 'breakStartHour', 'breakEndHour',
+                             'travelBufferMinutes', 'upiId', 'skills', 'perfectionBadge', 'shopName',
+                             'shopAddress', 'homeVisitAvailable', 'latitude', 'longitude', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isAdmin() && isValidId(barberId);
+    }
+
+    // 3. Service Catalog
+    match /services/{serviceId} {
+      allow get: if isSignedIn() && isValidId(serviceId) && (existing().isActive == true || isAdmin());
+      allow list: if isSignedIn() && (existing().isActive == true || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isValidId(serviceId) &&
+                       isValidService(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       (
+                         isAdmin() ||
+                         (
+                           serviceId in [
+                             'svc_classic_cut', 'svc_skin_fade', 'svc_kids_cut', 'svc_senior_cut',
+                             'svc_beard_trim', 'svc_clean_shave', 'svc_hair_wash', 'svc_scalp_oil',
+                             'svc_face_cleanup', 'svc_brow_neck', 'svc_pkg_essential', 'svc_pkg_complete'
+                           ] &&
+                           !exists(/databases/$(database)/documents/services/$(serviceId))
+                         )
+                       );
+
+      allow update: if isAdmin() &&
+                       isValidId(serviceId) &&
+                       isValidService(incoming()) &&
+                       incoming().createdAt == existing().createdAt;
+
+      allow delete: if isAdmin() && isValidId(serviceId);
+    }
+
+    // 4. Service Areas
+    match /serviceAreas/{areaId} {
+      allow get: if isSignedIn() && isValidId(areaId) && (existing().isActive == true || isAdmin());
+      allow list: if isSignedIn() && (existing().isActive == true || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isValidId(areaId) &&
+                       isValidServiceArea(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       (
+                         isAdmin() ||
+                         (
+                           areaId in ['zone_central', 'zone_south', 'zone_west'] &&
+                           !exists(/databases/$(database)/documents/serviceAreas/$(areaId))
+                         )
+                       );
+
+      allow update: if isAdmin() &&
+                       isValidId(areaId) &&
+                       isValidServiceArea(incoming()) &&
+                       incoming().createdAt == existing().createdAt;
+
+      allow delete: if isAdmin() && isValidId(areaId);
+    }
+
+    // 5. Slot Locks (Concurrency Reservation)
+    match /slotLocks/{lockId} {
+      allow get: if isSignedIn() && isValidId(lockId);
+      allow list: if isSignedIn() && (
+                    existing().status in ['HELD', 'CONFIRMED'] ||
+                    existing().customerId == request.auth.uid ||
+                    existing().barberId == request.auth.uid ||
+                    isAdmin()
+                  );
+
+      allow create: if isSignedIn() &&
+                       isValidId(lockId) &&
+                       isValidSlotLock(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       (incoming().customerId == request.auth.uid || isAdmin()) &&
+                       exists(/databases/$(database)/documents/barberProfiles/$(incoming().barberId));
+
+      allow update: if isSignedIn() &&
+                       isValidId(lockId) &&
+                       isValidSlotLock(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         // Releasing an expired/cancelled slot or owning customer/barber updating status
+                         (
+                           (existing().customerId == request.auth.uid || existing().barberId == request.auth.uid || existing().status == 'RELEASED') &&
+                           incoming().barberId == existing().barberId &&
+                           incoming().dateKey == existing().dateKey &&
+                           incoming().hourSlot == existing().hourSlot &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'bookingId', 'customerId', 'updatedAt'])
+                         )
+                       );
+
+      allow delete: if isAdmin() && isValidId(lockId);
+    }
+
+    // 6. Bookings (Core Marketplace Engine — ₹0 Customer Fee, Commission Charged to Barber)
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (
+                   existing().customerId == request.auth.uid ||
+                   existing().barberId == request.auth.uid ||
+                   isAdmin()
+                 );
+
+      allow list: if isSignedIn() && (
+                    existing().customerId == request.auth.uid ||
+                    existing().barberId == request.auth.uid ||
+                    isAdmin()
+                  );
+
+      allow create: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       (
+                         isAdmin() ||
+                         (
+                           incoming().customerId == request.auth.uid &&
+                           incoming().status in ['SLOT_HELD', 'PAYMENT_PENDING', 'AWAITING_BARBER'] &&
+                           incoming().approvedAddOnPaise == 0 &&
+                           incoming().directPaymentStatus == 'PENDING' &&
+                           exists(/databases/$(database)/documents/barberProfiles/$(incoming().barberId)) &&
+                           get(/databases/$(database)/documents/barberProfiles/$(incoming().barberId)).data.approvalStatus == 'APPROVED'
+                         )
+                       );
+
+      allow update: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().customerId == existing().customerId &&
+                       incoming().bookingNumber == existing().bookingNumber &&
+                       (
+                         isAdmin() ||
+                         (
+                           // Terminal state lock: non-admins cannot reopen CANCELLED, EXPIRED, or NO_SHOW bookings
+                           !(existing().status in ['CANCELLED', 'EXPIRED', 'NO_SHOW']) &&
+                           (
+                             // Action A: Customer cancels/reschedules, approves/declines extra service, confirms/disputes direct payment, or marks review
+                             (
+                               request.auth.uid == existing().customerId &&
+                               incoming().barberId == existing().barberId &&
+                               incoming().serviceSubtotalPaise == existing().serviceSubtotalPaise &&
+                               incoming().platformBookingFeePaise == existing().platformBookingFeePaise &&
+                               incoming().diff(existing()).affectedKeys().hasOnly([
+                                 'status', 'dateKey', 'startHour', 'bookingFeeStatus', 'bookingFeeTxRef',
+                                 'approvedAddOnPaise', 'barberServicePayablePaise', 'totalCustomerCostPaise',
+                                 'barberCommissionPaise', 'barberNetEarningsPaise',
+                                 'durationMinutes', 'serviceNamesSummary', 'pendingAddOnStatus',
+                                 'directPaymentStatus', 'cancellationReason', 'hasReview', 'updatedAt'
+                               ])
+                             ) ||
+                             // Action B: Assigned Barber accepts/rejects, updates trip/service execution, requests catalog add-on (cannot alter approvedAddOnPaise!), or records direct payment declaration
+                             (
+                               request.auth.uid == existing().barberId &&
+                               incoming().barberId == existing().barberId &&
+                               incoming().serviceSubtotalPaise == existing().serviceSubtotalPaise &&
+                               incoming().approvedAddOnPaise == existing().approvedAddOnPaise &&
+                               incoming().travelChargePaise == existing().travelChargePaise &&
+                               incoming().barberServicePayablePaise == existing().barberServicePayablePaise &&
+                               incoming().platformBookingFeePaise == existing().platformBookingFeePaise &&
+                               incoming().bookingFeeStatus == existing().bookingFeeStatus &&
+                               incoming().diff(existing()).affectedKeys().hasOnly([
+                                 'status', 'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise',
+                                 'pendingAddOnDurationMin', 'pendingAddOnStatus', 'directPaymentStatus',
+                                 'directPaymentMethod', 'directPaymentDeclaredPaise', 'directPaymentRef',
+                                 'barberCommissionStatus', 'cancellationReason', 'updatedAt'
+                               ])
+                             )
+                           )
+                         )
+                       );
+
+      allow delete: if isAdmin() && isValidId(bookingId);
+
+      // Protected Full Home Door Address Snapshot (Parent Gate + Assigned Barber Authorization)
+      match /privateDetails/{detailId} {
+        allow get: if isSignedIn() && isValidId(bookingId) && isValidId(detailId) && (
+                     existing().customerId == request.auth.uid ||
+                     isAdmin() ||
+                     (
+                       existing().barberId == request.auth.uid &&
+                       exists(/databases/$(database)/documents/bookings/$(bookingId)) &&
+                       !(get(/databases/$(database)/documents/bookings/$(bookingId)).data.status in ['CANCELLED', 'EXPIRED'])
+                     )
+                   );
+        allow list: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(bookingId) &&
+                         isValidId(detailId) &&
+                         isValidBookingPrivateAddress(incoming()) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         incoming().bookingId == bookingId &&
+                         (incoming().customerId == request.auth.uid || isAdmin()) &&
+                         existsAfter(/databases/$(database)/documents/bookings/$(bookingId));
+
+        allow update: if isSignedIn() &&
+                         isValidId(bookingId) &&
+                         isValidId(detailId) &&
+                         isValidBookingPrivateAddress(incoming()) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().customerId == existing().customerId &&
+                         incoming().bookingId == existing().bookingId &&
+                         (
+                           isAdmin() ||
+                           (
+                             request.auth.uid == existing().customerId &&
+                             incoming().barberId == existing().barberId &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['fullAddressSnapshot', 'accessInstructions', 'customerPhone', 'updatedAt'])
+                           )
+                         );
+
+        allow delete: if isAdmin() && isValidId(bookingId) && isValidId(detailId);
+      }
+    }
+
+    // 7. Reviews
+    match /reviews/{reviewId} {
+      allow get: if isSignedIn() && isValidId(reviewId) && (
+                   existing().status == 'PUBLISHED' ||
+                   existing().customerId == request.auth.uid ||
+                   isAdmin()
+                 );
+      allow list: if isSignedIn() && (
+                    existing().status == 'PUBLISHED' ||
+                    existing().customerId == request.auth.uid ||
+                    existing().barberId == request.auth.uid ||
+                    isAdmin()
+                  );
+
+      allow create: if isSignedIn() &&
+                       isValidId(reviewId) &&
+                       isValidReview(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       incoming().customerId == request.auth.uid &&
+                       incoming().status == 'PUBLISHED' &&
+                       exists(/databases/$(database)/documents/bookings/$(incoming().bookingId)) &&
+                       get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.customerId == request.auth.uid &&
+                       get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.status == 'COMPLETED';
+
+      allow update: if isAdmin() &&
+                       isValidId(reviewId) &&
+                       isValidReview(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().customerId == existing().customerId &&
+                       incoming().bookingId == existing().bookingId;
+
+      allow delete: if isAdmin() && isValidId(reviewId);
+    }
+
+    // 8. Support Tickets & Disputes
+    match /supportTickets/{ticketId} {
+      allow get: if isSignedIn() && isValidId(ticketId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isValidId(ticketId) &&
+                       isValidSupportTicket(incoming()) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       incoming().createdBy == request.auth.uid &&
+                       incoming().status == 'OPEN' &&
+                       incoming().adminResolution == '';
+
+      allow update: if isAdmin() &&
+                       isValidId(ticketId) &&
+                       isValidSupportTicket(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().createdBy == existing().createdBy &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminResolution', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(ticketId);
+    }
+
+    // 9. Immutable Admin Audit Logs
+    match /auditLogs/{logId} {
+      allow get: if isAdmin() && isValidId(logId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() &&
+                       isValidId(logId) &&
+                       isValidAuditLog(incoming()) &&
+                       incoming().actorId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // 10. Platform Configuration (Barber Commission Policy & Cancellation Cutoff)
+    match /platformConfig/{configId} {
+      allow get: if isSignedIn() && isValidId(configId);
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() &&
+                               isValidId(configId) &&
+                               isValidPlatformConfig(incoming()) &&
+                               incoming().updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+  }
+}

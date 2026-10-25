@@ -1,0 +1,1773 @@
+# Complete Master Blueprint: At-Home Barber Booking Android App
+
+This is the full functional specification for your application: every major feature, all three roles, service catalog, booking rules, payment logic, workflows, screens, APIs, database structure, admin controls, security, and development priorities.
+
+The goal is to build a working business application first. Advanced animations and visual design come after the core booking, payment, scheduling, and management functions work correctly.
+
+## 1. Application overview
+
+[Mobile Barber Near Me | In-Home Haircuts SF Bay Area & DC Metro | StylesGo](https://images.openai.com/static-rsc-4/nwDHHIe2sZ6h74E6376VYKvh67HCwMMD0VRr5EFV_txPoOCozUaillSGcZzro9bFZr7OwUB-nHhQXOZA9aLYHbhUDa9bxH4dulAIMfHP7Nbq2AJGBgqy4UQb4t4T9SwOH8vq-TUlO_J6jOaXArEUbEGM31uFRADx4OnrEXBfbzQ?purpose=inline)
+
+Customer Android app
+
+Customers browse barber services, choose a barber and time, enter their home address, pay the booking-confirmation fee, track their appointment, pay the barber directly after the service, and leave a review.
+
+[Expert Hair Rebuilding Treatments in a Modern Salon | AI Art Generator | Easy-Peasy.AI](https://images.openai.com/static-rsc-4/d50V2f3yevUV_L2Hxwkr6qPjkEYSVyz2x1Sm517v_OwZTITOtW_kZ1pW7EHgGasBceoazPxh0-uUZFMzvCA90kxp5K6R7KdW9XzImeQzJveoRZDuizhK-b_qMLvNXdFhY3NRj6u_Po1rleZtNoWCQ8l9mkbCrhjdk0uJj-unXXI?purpose=inline)
+
+Barber Android app
+
+Barbers manage their profile and availability, accept bookings, view customer locations, see service charges and appointment details, navigate to the customer's home, complete the service, and record the final payment.
+
+Admin dashboard
+
+The administrator controls barbers, customers, services, prices, booking fees, schedules, service areas, complaints, cancellations, reports, and the entire platform.
+
+### The business model — mandatory rules
+
+There are two separate payments.
+
+Payment 1 — Booking-confirmation fee
+
+Paid to the platform
+
+The customer pays a small fee through the app before the appointment is confirmed. The backend verifies successful payment before confirming the booking.
+
+Payment 2 — Barber's service charge
+
+Paid directly to the barber
+
+Once the service is finished, the customer pays the barber using UPI or cash. The platform records the declared payment status but does not automatically receive this money.
+
+Example calculation:
+
+| Item                                         | Amount |
+| -------------------------------------------- | ------ |
+| Haircut                                      | ₹300   |
+| Beard trim                                   | ₹150   |
+| Hair wash                                    | ₹100   |
+| Total service charges payable to barber      | ₹550   |
+| Booking-confirmation fee payable to platform | ₹30    |
+| Total customer cost                          | ₹580   |
+
+The ₹30 is not subtracted from the ₹550 unless you deliberately change the business model. Display both amounts separately throughout the booking.
+
+# 2. User roles and permissions
+
+| Capability                    | Customer                  | Barber                   | Admin                            |
+| ----------------------------- | ------------------------- | ------------------------ | -------------------------------- |
+| Register and log in           | Yes                       | Admin-approved account   | Secure admin login               |
+| Browse service catalog        | Yes                       | Assigned services        | Create and manage                |
+| View prices                   | Yes                       | Own service prices       | Manage all prices                |
+| Create bookings               | Yes                       | No                       | On behalf of customer, if needed |
+| Accept/reject booking         | No                        | Own requests             | Override with audit log          |
+| View customer address         | Own bookings              | Assigned confirmed jobs  | All bookings when authorized     |
+| Manage availability           | No                        | Own calendar             | Global rules and overrides       |
+| Pay booking fee               | Yes                       | No                       | View and manage records          |
+| Record direct service payment | Confirm/raise dispute     | Record method and amount | Review and investigate           |
+| Cancel/reschedule             | Within policy             | Within policy            | Override with reason             |
+| Reviews                       | Submit for completed jobs | View feedback            | Moderate/report abuse            |
+| Manage users and services     | No                        | Limited own profile      | Yes                              |
+| Financial reports             | Own receipts              | Own earnings             | Platform-wide                    |
+| Manage policies and settings  | No                        | No                       | Yes                              |
+
+Security rule: hiding a button is not sufficient. The server must verify every action and the identity of the record owner.
+
+# 3. Complete customer feature list
+
+## 3.1 Registration, login, and account
+
+- Splash screen and app introduction.
+- Customer registration using mobile number and OTP.
+- Login and logout.
+- Optional email login or email verification.
+- Forgot-password/account recovery if password login is supported.
+- OTP expiration and resend cooldown.
+- Profile photo, full name, phone number, and email.
+- Edit profile.
+- Multiple saved addresses.
+- Set a default address.
+- Saved home, office, or other address labels.
+- Account deletion request.
+- Privacy consent and terms acceptance.
+- Notification preferences.
+- Active session management and logout from other devices.
+- Blocked or suspended account messaging.
+- Customer support access.
+
+## 3.2 Home screen and discovery
+
+- Search bar for services.
+- Categories of grooming services.
+- Popular services.
+- Recommended barbers.
+- Highest-rated barbers.
+- Recently booked services.
+- Repeat previous booking.
+- Offers and promotional banners.
+- Location selector.
+- Service availability by area.
+- Next available appointment.
+- Barber profile cards with photo, rating, experience, and available slots.
+- Clear display when a service is unavailable in the customer's area.
+- Loading, empty, offline, and error states.
+
+## 3.3 Service catalog
+
+Each service should have:
+
+- Service ID.
+- Service name.
+- Category.
+- Description.
+- Image or icon.
+- Base price.
+- Estimated duration.
+- Active/inactive status.
+- Optional add-ons.
+- Applicable taxes, if any.
+- Cancellation eligibility.
+- Eligible barber list.
+- Customer-facing instructions.
+- Service-specific restrictions, if necessary.
+
+Customers can filter and sort services by category, price, duration, popularity, and availability.
+
+## 3.4 Complete service catalog
+
+These are suggested services. The admin must be able to enable, disable, rename, reorder, and price them without changing application code.
+
+A. Haircuts
+
+- Classic haircut
+- Regular haircut
+- Fade haircut
+- Low, mid, and high fade
+- Skin fade
+- Taper haircut
+- Buzz cut
+- Crew cut
+- Scissor haircut
+- Kids' haircut
+- Senior haircut
+- Haircut and styling
+- Long-hair trim
+- Fringe trim
+- Haircut correction
+
+[Skin Fades vs. Tapers – What’s the Difference?](https://images.openai.com/static-rsc-4/G0rxIKH3vBB2cAVC5lXuRljXDWw3sJbC-E8omis6dXwTis5PXHxJDs6IgXgl_E2HUtrqU7fUmbWRGmHlI0Fp6egTYi7PxUa7-gJnW4A1IrwHWiKUbLEKjJHlzgU0A10qqe-BtMH1Y730G5VWuccpWEm8Eqk3UEQ7gted00yYpE0?purpose=inline)
+
+B. Beard and moustache
+
+- Beard trim
+- Beard shaping
+- Full beard styling
+- Moustache trim
+- Beard line-up
+- Neckline cleanup
+- Clean shave
+- Head shave
+- Haircut and beard combo
+- Beard conditioning
+
+[Hair Spa Rituals - Hairmechanixx](https://images.openai.com/static-rsc-4/fTJjISNkCT8nHAONAyZDiWfOWIiA_eN2QMvMZLuswQa4CFCq45Im53IyIg8Xu-jdoBvD68pGMbAm81PMvZoHStxtqF-dXNcw3IJViH06o1kYf4Jq28EK-0jJ9CT8WehGWL2okHbv1X9kJwqZnOeNQvCeXJGl2x2A7sU8r3JUL0M?purpose=inline)
+
+C. Hair care and styling
+
+- Hair wash
+- Blow dry
+- Basic styling
+- Hair setting
+- Straightening, if offered
+- Hair spa, if offered
+- Hair and scalp care
+- Hair oil application
+- Hair-color application, if offered
+- Hair-color touch-up, if offered
+
+[For Men | Beauty Lounge Day Spa](https://images.openai.com/static-rsc-4/A4Fvcg0D_235hueTn6iP5SHzmAyLCKcSZnd0y3pYqlM0m2knxR0gUrwK-9yI8dUM2kJ48A0ccF51Q9V8zYKdSRx778qFGI0YTelHRc1Em1MFAvn3d9_yItwiOEspyjXncqMduIs1EIvrQk-08qIAI8xyVFfd-Gw-sMrc0MJvbeE?purpose=inline)
+
+D. Grooming add-ons
+
+- Basic facial
+- Face cleanup
+- Face mask
+- Eyebrow trimming
+- Ear hair trimming
+- Nose hair trimming
+- Neck cleanup
+- Hair wash add-on
+- Styling product application
+
+[Billy Cuts Barbershop](https://images.openai.com/static-rsc-4/QpLw755ZEWIKu56QCchUO1IRTZXbjNfB33dNSN-bZ51j7hblKK10O73q-bFbWC62WquBjW1HxOZYzv_76wh1LqEvZEP4VEjjdAxBhqt1uk8E_2AZJkt4OwcV5ASkysmDFdZpUU8KlOFp6mOnaJ1AGggQ49IUgrNT_0lT0pqWTc8?purpose=inline)
+
+E. Packages
+
+- Haircut + beard trim
+- Haircut + shave
+- Haircut + wash + styling
+- Beard trim + face cleanup
+- Complete grooming package
+- Kids' grooming package
+- Family booking package, if multiple customers can be served in one visit
+
+For each item, the admin configures the price, duration, participating barbers, and availability. Do not advertise a chemical treatment or specialist service unless a qualified barber and the required supplies are available.
+
+## 3.5 Barber discovery and selection
+
+- List available barbers who can perform the selected services.
+- Filter by distance or service area.
+- Filter by rating, price, and next available slot.
+- View barber profile and experience.
+- View supported services and their prices.
+- View portfolio photos, if provided.
+- View customer reviews.
+- View approximate travel distance.
+- Show whether the barber is online, unavailable, or fully booked.
+- Choose a specific barber or request the best available barber.
+- Show a clear message if no barber is available.
+
+## 3.6 Address and location
+
+- Add address manually.
+- Search address using map autocomplete.
+- Select a location on a map.
+- Save latitude and longitude.
+- Add house/flat number, street, landmark, and area.
+- Choose home, office, or other.
+- Add access instructions.
+- Add optional gate or security information.
+- Validate that the address falls within a supported service zone.
+- Calculate travel distance and travel charge, if configured.
+- Warn the customer if the address is outside the service area.
+- Change the address before the policy cutoff.
+- Restrict address visibility to authorized people.
+- Avoid exposing the full address to unassigned barbers.
+
+Location permission must be optional when the customer can enter an address manually. Request GPS access when it provides a clear benefit, rather than requiring it for every user.
+
+## 3.7 Booking and scheduling
+
+- Select one or more services.
+- Select a preferred barber or automatic matching.
+- Select date.
+- Display available time slots.
+- Calculate appointment duration from all selected services.
+- Include travel/buffer time in barber scheduling.
+- Select the address.
+- Add appointment notes.
+- Review service prices and booking fee.
+- Accept cancellation and booking terms.
+- Temporarily hold a slot during checkout.
+- Process the booking-confirmation fee.
+- Confirm only after verified payment and successful reservation.
+- Display a unique booking number.
+- Add appointment to calendar.
+- Reschedule within the allowed policy.
+- Cancel within the allowed policy.
+- Book again from history.
+- Prevent two bookings from occupying the same barber's time.
+- Prevent a booking outside the barber's working hours.
+- Prevent bookings on leave or blocked dates.
+
+## 3.8 Appointment tracking
+
+Customers can view:
+
+- Booking number.
+- Selected barber.
+- Services and prices.
+- Date and time.
+- Appointment address.
+- Booking-confirmation fee status.
+- Service payment status.
+- Barber acceptance status.
+- Barber's ETA, if supported.
+- Current appointment status.
+- Cancellation and refund details.
+- Contact/support options.
+- Booking timeline and notifications.
+
+## 3.9 Customer payments and receipts
+
+- Pay booking fee through a supported payment gateway.
+- UPI and other gateway-supported methods for the platform fee.
+- Retry a failed booking-fee payment.
+- Display transaction ID and receipt.
+- Prevent duplicate payment records.
+- Display the barber's service amount separately.
+- Display any approved extra service or travel fee.
+- Let the customer confirm whether they paid the barber.
+- Choose UPI or cash as the direct payment method.
+- Report a disputed payment or price change.
+- Download or view booking and fee receipts.
+- View refund status.
+- View past payment history.
+
+Important: a customer tapping “Paid by UPI” is an acknowledgement, not independent proof that the barber received the transfer. Do not label a direct payment as gateway-verified.
+
+## 3.10 Reviews, support, and retention
+
+- Star rating after completed appointment.
+- Written review.
+- Optional service-quality rating.
+- Report unprofessional conduct.
+- Report late arrival or no-show.
+- Report price disagreement.
+- Report payment dispute.
+- Support ticket with booking reference.
+- View support-ticket status.
+- Receive responses from admin.
+- Favorite a barber.
+- Repeat booking.
+- Booking history.
+- Referral code, if introduced.
+- Coupons and promotional offers, if introduced.
+
+# 4. Complete barber feature list
+
+The barber application is not just a profile page. It is the barber's daily work-management system.
+
+## 4.1 Barber registration and verification
+
+- Admin creates or invites a barber account.
+- Barber receives an invitation or account activation link/code.
+- Secure login and account recovery.
+- Profile completion checklist.
+- Full name and contact number.
+- Profile photograph.
+- Short biography and experience.
+- Languages spoken.
+- Services the barber can perform.
+- Service-specific prices, where allowed.
+- Working areas and maximum travel distance.
+- Identity/document verification, if required by your business.
+- Qualification/certificate upload, if relevant.
+- UPI ID or preferred direct-payment details, optionally.
+- Agreement to platform terms and cancellation policies.
+- Admin approval, rejection, or request for more information.
+- Account status: pending, active, suspended, rejected.
+- Admin audit trail for approval and status changes.
+
+A barber must not receive customer bookings before approval and activation.
+
+## 4.2 Barber dashboard
+
+The main dashboard should display:
+
+- Today's appointments.
+- New booking requests.
+- Upcoming appointments.
+- Pending acceptances.
+- Appointment cancellations.
+- Next customer's appointment time.
+- Next customer's address after authorization.
+- Service list and expected service charges.
+- Today's completed jobs.
+- Direct payments recorded.
+- Customer ratings.
+- Working/available toggle.
+- Calendar shortcut.
+- Notifications.
+- Support shortcut.
+
+## 4.3 Availability and calendar
+
+- Set normal working days.
+- Set start and end times for each day.
+- Configure breaks and lunch time.
+- Configure holidays and days off.
+- Set temporary unavailability.
+- Block a specific time range.
+- Configure advance booking limits.
+- Configure minimum booking notice.
+- Configure maximum bookings per day.
+- Configure travel buffer between appointments.
+- Configure estimated travel duration.
+- Show daily, weekly, and monthly calendars.
+- Display accepted, pending, completed, and cancelled jobs differently.
+- Prevent overlapping appointments.
+- Recalculate slots when a service duration changes.
+- Prevent bookings after a barber becomes unavailable.
+- Allow an admin to block a slot in an emergency.
+
+The barber's availability must be calculated by the backend, not just by the calendar displayed on the phone.
+
+## 4.4 Booking requests
+
+For each incoming request, show:
+
+- Booking reference.
+- Requested date and start time.
+- Services requested.
+- Estimated total service duration.
+- Expected service charge.
+- Address and travel estimate when access is permitted.
+- Customer notes.
+- Booking-fee verification status.
+- Request expiry time.
+- Accept button.
+- Reject button with a reason.
+- Contact/support option where appropriate.
+
+Rules:
+
+1. Only the assigned barber can accept or reject that booking.
+2. A rejected booking returns to the matching process or is offered to another eligible barber.
+3. A barber cannot accept a job that conflicts with an existing confirmed appointment.
+4. If the barber does not respond within the configured time, the request expires and the customer is notified.
+5. The customer must not be charged a second booking fee merely because the original barber rejected the request.
+6. Reassignment must preserve the original fee transaction and booking history.
+
+## 4.5 Appointment execution
+
+The barber should be able to perform these actions in order:
+
+1. View the accepted appointment.
+2. Open navigation to the customer.
+3. Mark On the way.
+4. Optionally share ETA or trip status.
+5. Mark Arrived.
+6. Confirm the customer and requested services.
+7. Start the service.
+8. Record any approved service change.
+9. Mark service completed.
+10. Enter the actual service total.
+11. Record the customer's direct payment method.
+12. Record whether payment was received.
+13. Submit the completion confirmation.
+
+The app should record timestamps for the important transitions.
+
+### Service-change rule
+
+A barber must not silently increase the price after reaching the customer.
+
+If the customer asks for an additional service:
+
+- The barber selects the additional service from the approved catalog.
+- The app displays the added amount and duration.
+- The customer approves the change.
+- The backend saves the revised total and records who approved it.
+- The final amount appears in the appointment history.
+
+If the extra service is not in the catalog, the barber should request admin approval or follow an explicitly configured custom-quote policy.
+
+## 4.6 Direct payment recording
+
+The barber sees the final service amount due, for example ₹550.
+
+The barber selects:
+
+- Cash received.
+- UPI received.
+- Partially received.
+- Not received.
+- Payment disputed.
+
+For UPI, the app can store a transaction reference supplied by the barber or customer. It must not claim verification unless an actual supported verification mechanism exists.
+
+The customer should receive a prompt to confirm or dispute the declared payment. If the customer disagrees, the booking is flagged for review rather than silently marked as settled.
+
+## 4.7 Barber earnings and history
+
+- Completed appointment list.
+- Service amount per job.
+- Payment method recorded.
+- Unpaid or disputed amounts.
+- Daily, weekly, and monthly job counts.
+- Customer ratings and reviews.
+- Cancellation history.
+- Rejection history.
+- Tips, if supported.
+- Travel charges, if configured.
+- Downloadable work history.
+- Admin adjustments with reasons.
+- Notifications about policy changes.
+
+Because the customer pays the barber directly, the barber's service charges are not platform-collected revenue. The platform's own fee revenue must be reported separately.
+
+## 4.8 Barber profile and account settings
+
+- Edit profile and photo.
+- Update supported services.
+- Manage availability.
+- View approved prices.
+- Update service area.
+- Change notification settings.
+- Contact admin.
+- View policies.
+- Report a customer-safety concern.
+- Request a temporary break or permanent deactivation.
+- View account verification status.
+
+# 5. Complete admin dashboard
+
+The admin should have the broadest operational access. However, every sensitive action should be permission-controlled, recorded, and reversible where practical.
+
+## 5.1 Admin overview dashboard
+
+Show summary cards for:
+
+- Total customers.
+- Active customers.
+- Total barbers.
+- Pending barber approvals.
+- Active and suspended barbers.
+- Today's bookings.
+- Pending booking requests.
+- Confirmed appointments.
+- In-progress appointments.
+- Completed appointments.
+- Cancelled appointments.
+- Booking-fee transactions.
+- Successful, pending, failed, and refunded fees.
+- Platform fee revenue.
+- Direct service charges reported by barbers.
+- Unpaid/disputed service payments.
+- Customer complaints.
+- Average rating.
+- Most popular services.
+- Booking trends by day/week/month.
+- Bookings by area.
+- Barber acceptance and cancellation rates.
+
+Every metric should be calculated from real database records, not hardcoded demo values.
+
+## 5.2 Customer management
+
+- List and search customers.
+- Filter by status, date, area, and booking activity.
+- View customer profile.
+- View booking history.
+- View booking-fee transaction history.
+- View complaints and support tickets.
+- Suspend or reactivate an account.
+- Record an internal note.
+- Process account-deletion requests according to policy.
+- Review reports about abusive or fraudulent activity.
+- Export authorized customer data.
+- Audit admin changes.
+
+Customer personal data should be visible only to admins who need it for their work.
+
+## 5.3 Barber management
+
+- Add barber.
+- Invite barber.
+- Approve or reject registration.
+- Request missing verification information.
+- Activate, suspend, or deactivate barber.
+- Edit profile when authorized.
+- Assign available services.
+- Set default service prices.
+- Set barber-specific prices within admin-defined limits.
+- Set service areas and maximum distance.
+- Review barber availability.
+- View upcoming appointments.
+- View completion and cancellation rates.
+- View ratings and complaints.
+- Review reported payment discrepancies.
+- Reassign a booking.
+- Block a barber's availability.
+- Maintain a history of admin actions.
+
+## 5.4 Service and price management
+
+- Create service categories.
+- Add, edit, reorder, hide, or archive services.
+- Upload service images.
+- Set base price.
+- Set estimated duration.
+- Set allowed add-ons.
+- Set barber eligibility.
+- Set minimum or maximum price, if required.
+- Set service-specific booking rules.
+- Set service availability by area.
+- Configure combo packages.
+- Configure optional discounts.
+- Set effective dates for price changes.
+- Preview the customer-facing service card.
+- Retain old booking prices even after a service price changes.
+
+Critical: a price change today must not change the saved price of an appointment booked yesterday.
+
+## 5.5 Booking management
+
+- View all bookings.
+- Search by booking ID, customer, or barber.
+- Filter by date, area, service, and status.
+- View complete booking timeline.
+- View booking-fee payment status.
+- View the service amount and any approved extras.
+- View the direct-payment declaration.
+- Cancel a booking with a recorded reason.
+- Reschedule a booking with authorization.
+- Reassign a barber.
+- Contact customer or barber through approved channels.
+- Resolve conflicting schedules.
+- Handle no-shows.
+- Mark bookings for investigation.
+- Issue a refund when allowed and supported.
+- Add internal notes.
+- Export booking reports.
+
+An admin override should not erase the original booking events or transaction history.
+
+## 5.6 Booking fee and financial management
+
+Admin configuration:
+
+- Fixed booking fee.
+- Percentage-based booking fee.
+- Minimum and maximum fee, if required.
+- Whether the fee varies by service or booking total.
+- Supported payment methods for the fee.
+- Cancellation and refund policy.
+- Fee policy effective date.
+- Tax treatment where applicable.
+- Payment gateway settings.
+- Transaction reconciliation tools.
+
+Admin transaction views:
+
+- Transaction ID.
+- Booking ID.
+- Customer ID.
+- Amount.
+- Payment method.
+- Gateway order/payment reference.
+- Transaction status.
+- Creation and verification timestamps.
+- Refund reference.
+- Error reason, if failed.
+
+Financial reports must separate:
+
+1. Platform booking-fee revenue.
+2. Refunds and reversals.
+3. Payment gateway fees.
+4. Service charges reported as paid directly to barbers.
+5. Unpaid or disputed service amounts.
+
+Do not label direct barber payments as platform revenue.
+
+## 5.7 Service areas and travel rules
+
+- Create supported service zones.
+- Set zones by postal code or geographic boundary.
+- Set the maximum travel distance.
+- Set optional travel charges.
+- Set service availability by zone.
+- Enable or disable bookings for an area.
+- Set area-specific operating hours.
+- View demand by location.
+- Restrict a barber to specific areas.
+- Configure travel buffers.
+- Block unsafe or unsupported locations when necessary.
+
+## 5.8 Cancellation, refund, and dispute management
+
+- Customer cancellation.
+- Barber cancellation.
+- Admin cancellation.
+- Customer no-show.
+- Barber no-show.
+- Late arrival complaint.
+- Booking-fee refund eligibility.
+- Refund status tracking.
+- Duplicate fee investigation.
+- Failed payment investigation.
+- Direct-payment disagreement.
+- Service-quality complaint.
+- Evidence or notes attachment.
+- Assign complaint to an admin.
+- Record investigation notes.
+- Record final resolution.
+- Notify both parties.
+- Preserve an audit history.
+
+## 5.9 Notifications and communication
+
+- Push notification templates.
+- Booking confirmation template.
+- New booking request template.
+- Booking accepted/rejected message.
+- Reminder template.
+- Cancellation and rescheduling messages.
+- Payment receipt message.
+- Refund status message.
+- Service completion message.
+- Review request.
+- Maintenance announcement.
+- Admin broadcast messages.
+- Delivery status and failure logs.
+- Notification preferences by user.
+
+## 5.10 Admin settings and platform security
+
+- Admin login and recovery.
+- Two-factor authentication where supported.
+- Role and permission configuration for additional staff.
+- Service catalog settings.
+- Booking rules.
+- Cancellation rules.
+- Booking-fee settings.
+- Service-area settings.
+- Notification settings.
+- Terms and privacy-policy content.
+- Data retention rules.
+- Export and backup tools.
+- Audit logs.
+- Session revocation.
+- Maintenance mode.
+- Feature flags for staged releases.
+- Error monitoring.
+- Integration settings.
+
+For the first release, a single owner/admin account may be enough. If the business grows, add granular admin permissions rather than giving every staff member unrestricted access.
+
+# 6. Exact end-to-end workflows
+
+These workflows define what the software actually does when a person taps a button.
+
+## Workflow A — Customer books a barber
+
+1. Open app and log in. The app loads the customer's account, saved addresses, and active bookings.
+2. Choose location. Validate the address and service area before offering unavailable services.
+3. Choose services. Calculate the service subtotal and total estimated duration using current prices.
+4. Choose barber. Show only approved barbers who can perform the selected services and cover the location.
+5. Choose date and time. Query the server for eligible slots, including working hours, existing bookings, service duration, travel buffers, and leave.
+6. Review booking. Show service breakdown, service charge, booking fee, address, duration, cancellation terms, and final customer cost.
+7. Reserve the slot temporarily. Create a time-limited hold so two customers cannot book the same barber and time.
+8. Pay booking fee. Create a payment order with the gateway and launch the payment interface.
+9. Verify payment server-side. A verified success event and a valid slot reservation are required before confirmation.
+10. Assign or confirm barber. If the barber must accept the job, keep it in the appropriate pending-acceptance state until acceptance.
+11. Notify both parties. Send booking reference, date/time, service details, and the next action required.
+12. Display booking details. The customer can view status, payment receipt, barber information, and cancellation/rescheduling options.
+
+### Important distinction: payment success versus booking success
+
+A gateway may report a successful payment while the booking fails because the slot was taken or the barber became unavailable.
+
+The backend must handle this case explicitly:
+
+1. Check whether the original slot can still be committed.
+2. If yes, confirm or continue the booking workflow.
+3. If no, do not falsely confirm it.
+4. Offer alternative slots or a different barber.
+5. If no acceptable alternative is available, create a refund or reversal workflow according to the configured policy.
+6. Notify the customer and preserve the payment and booking records.
+
+Never rely only on the payment screen returning to the app to decide whether a payment succeeded.
+
+## Workflow B — Barber accepts a booking
+
+1. The backend creates a booking request for an eligible barber.
+2. The barber receives a push notification.
+3. The barber opens the request and views its details.
+4. The barber taps Accept or Reject.
+5. The backend checks the barber's authorization and booking state.
+6. The backend checks that the slot is still available.
+7. On acceptance, the appointment is confirmed and the slot is locked.
+8. On rejection, the reason is recorded and the system finds another eligible barber or informs the customer.
+9. The customer receives an update.
+10. If no barber can be assigned, the booking enters a resolution/refund workflow.
+
+If the business allows customers to choose only a specific barber, the system should not silently substitute another barber without customer consent.
+
+## Workflow C — Barber visits the customer's home
+
+1. Barber opens today's schedule.
+2. Barber opens the assigned booking.
+3. Barber launches navigation using the saved customer location.
+4. Barber marks On the way.
+5. Customer receives the travel-status update.
+6. Barber marks Arrived.
+7. Barber confirms the booking and agreed services with the customer.
+8. Barber taps Start service.
+9. If an extra service is requested, the barber sends a price-and-duration change request.
+10. Customer approves or declines the change.
+11. Barber performs the agreed service.
+12. Barber taps Complete service.
+13. App displays the final service amount.
+14. Barber records cash or UPI payment status.
+15. Customer confirms payment or reports a disagreement.
+16. The booking enters the appropriate completed/payment-pending/disputed state.
+17. Customer receives a completion notification and review prompt.
+
+## Workflow D — Direct UPI or cash payment
+
+### Example: service total ₹550
+
+The platform booking fee was already paid at booking time.
+
+Customer pays the barber
+
+Cash or direct UPI transfer
+
+## ₹550
+
+Barber records payment
+
+- Method: UPI or cash
+- Amount received
+- Date and time
+- Optional reference
+- Whether any amount remains unpaid
+
+Customer verifies the declaration
+
+- Confirms the recorded amount
+- Or disputes it
+
+Final result
+
+The app stores a payment declaration and customer acknowledgement. A disagreement is escalated for review. The platform does not claim to have received the ₹550.
+
+## Workflow E — Customer cancellation
+
+1. Customer opens the booking.
+2. App checks whether cancellation is allowed.
+3. App shows the applicable booking-fee refund policy before final confirmation.
+4. Customer chooses a cancellation reason.
+5. Backend locks and cancels the booking if eligible.
+6. The slot becomes available again.
+7. The backend calculates whether a refund is due.
+8. If a refund is required, it creates a refund request with an idempotent reference.
+9. Customer and barber receive notifications.
+10. Refund status is tracked until the gateway confirms its final state.
+
+Do not immediately display “Refund completed” merely because the refund request was submitted.
+
+## Workflow F — Barber cancellation
+
+1. Barber selects the booking and a cancellation reason.
+2. Backend verifies that the barber owns the booking.
+3. Booking is cancelled or moved into a controlled reassignment state.
+4. Customer receives a notification.
+5. System searches for eligible replacement barbers.
+6. Customer is asked to accept a replacement when required by policy.
+7. If reassignment fails, the system applies the cancellation/refund policy.
+8. The cancellation is added to the barber's operational history.
+9. Admin can review repeated cancellations.
+
+## Workflow G — Admin reassigns a booking
+
+1. Admin opens the booking and views the reason for intervention.
+2. Admin checks eligible barbers and their availability.
+3. Admin selects a replacement barber.
+4. Backend validates the new barber's services, schedule, location coverage, and travel buffer.
+5. Assignment is committed atomically.
+6. The old assignment remains in the history.
+7. The replacement barber is notified.
+8. The customer receives the updated details.
+9. If the replacement changes the agreed service, price, or timing materially, the customer must approve the change.
+
+## Workflow H — Disputed direct payment
+
+1. Customer or barber raises a dispute.
+2. Booking is flagged as disputed.
+3. The app retains both payment declarations and timestamps.
+4. Admin reviews booking details, the agreed service total, customer confirmation, and any voluntarily submitted evidence.
+5. Admin contacts the relevant parties.
+6. Admin records the outcome and reason.
+7. The result is communicated to both parties.
+8. The system preserves the original entries and the resolution history.
+
+The platform should not automatically assume either party is correct.
+
+# 7. Booking logic and status system
+
+## 7.1 Booking statuses
+
+Use explicit states instead of a single vague `status` field with inconsistent meanings.
+
+| Status            | Meaning                                                 |
+| ----------------- | ------------------------------------------------------- |
+| `DRAFT`           | Customer is still preparing the booking                 |
+| `SLOT_HELD`       | Slot is temporarily reserved during checkout            |
+| `PAYMENT_PENDING` | Booking fee has not yet been verified                   |
+| `AWAITING_BARBER` | Fee verified; barber response is pending                |
+| `CONFIRMED`       | Appointment is confirmed                                |
+| `ON_THE_WAY`      | Barber has started travelling                           |
+| `ARRIVED`         | Barber reports arrival                                  |
+| `IN_PROGRESS`     | Service has started                                     |
+| `COMPLETED`       | Service was completed                                   |
+| `CANCELLED`       | Booking was cancelled                                   |
+| `EXPIRED`         | Checkout hold or request expired                        |
+| `NO_SHOW`         | A party did not attend, following the applicable policy |
+| `DISPUTED`        | A service or payment dispute requires review            |
+
+Store payment status separately from booking status. A booking can be completed while the direct payment is disputed.
+
+## 7.2 Allowed state transitions
+
+```
+
+DRAFT
+  |
+  v
+SLOT_HELD
+  |
+  v
+PAYMENT_PENDING
+  | verified fee
+  v
+AWAITING_BARBER
+  | accepted
+  v
+CONFIRMED
+  |
+  v
+ON_THE_WAY
+  |
+  v
+ARRIVED
+  |
+  v
+IN_PROGRESS
+  |
+  v
+COMPLETED
+  |
+  +--> DIRECT_PAYMENT_PENDING
+  |          |
+  |          +--> PAID_RECORDED
+  |          |
+  |          +--> DISPUTED
+
+Alternative paths:
+SLOT_HELD --> EXPIRED
+PAYMENT_PENDING --> EXPIRED / PAYMENT_FAILED
+AWAITING_BARBER --> REASSIGNMENT / CANCELLED
+CONFIRMED --> CANCELLED / NO_SHOW
+Any eligible state --> DISPUTED
+
+```
+
+The exact transitions must be defined by the business policy. For example, customers should not be allowed to change the address freely after the barber has started travelling without recalculating travel and schedule impacts.
+
+## 7.3 Availability calculation
+
+A slot is available only if all these conditions are satisfied:
+
+- Barber is approved and active.
+- Barber offers every selected service.
+- Service area covers the customer's location.
+- Barber's working hours cover the proposed appointment.
+- Barber has no conflicting appointment or active slot hold.
+- Service duration plus required travel buffers fits the schedule.
+- Date is not blocked or on leave.
+- Appointment meets minimum notice and maximum advance-booking rules.
+- Any configured booking limits have not been reached.
+
+Concurrency protection is essential: two customers might select the same displayed slot at nearly the same time. The backend must atomically reserve or commit the slot for one request and reject or refresh the other.
+
+## 7.4 Price calculation
+
+The checkout should calculate a breakdown such as:
+
+- Service subtotal
+- Approved add-ons
+- Travel charge, if any
+- Discount, if valid
+- Applicable tax, if configured
+- Service amount payable directly to barber
+- Booking-confirmation fee payable to platform
+- Total customer cost
+
+A formula could be:
+
+\\[ \begin{aligned} S &= \sum\_{i=1}^{n} \text{service price}\_i\\\ T &= S+\text{approved add-ons}+\text{travel}\\\ C &= T-\text{discount}+\text{applicable tax}\\\ P &= C+\text{booking fee} \end{aligned} \\]
+
+Here, \\(C\\) is the service amount payable to the barber under this business model, and \\(P\\) is the total customer cost. Configure the tax and discount treatment explicitly so that the booking fee is not accidentally included twice.
+
+The booking must store a price snapshot at confirmation. Subsequent catalog changes must not retroactively change that booking's agreed prices.
+
+## 7.5 Booking-fee payment logic
+
+- Create a unique internal payment record.
+- Create a gateway order using a unique reference.
+- Keep the slot on hold for a configured period.
+- Verify payment signatures and/or gateway status on the server.
+- Ensure amount, currency, order ID, and booking ID match.
+- Process gateway callbacks idempotently.
+- Handle late callbacks and duplicate notifications.
+- Extend or expire holds according to policy.
+- Never mark an unverified payment as successful.
+- If the payment succeeds after the slot expires, attempt a safe reservation recovery or start the configured refund process.
+- Keep payment and booking states separately auditable.
+
+## 7.6 Cancellation and refund rules
+
+The admin should configure a clear policy, for example:
+
+- Free cancellation up to a configured cutoff.
+- Partial or no booking-fee refund after the cutoff, if legally and commercially appropriate.
+- Full or defined refund when the barber cancels.
+- Refund/reassignment workflow if no barber can be supplied.
+- Special rules for duplicate charges and payment failures.
+- Separate handling for disputes and no-shows.
+
+The application must show the policy to the customer before payment and save the accepted policy version with the booking.
+
+# 8. Full screen-by-screen application structure
+
+This is the proposed navigation structure for Android and the admin dashboard.
+
+## 8.1 Customer screens
+
+| Screen                      | Required functions                                      |
+| --------------------------- | ------------------------------------------------------- |
+| Splash / onboarding         | Branding, app introduction, permissions when needed     |
+| Register / login            | Phone OTP, verification, session handling               |
+| Home                        | Categories, popular services, location, offers          |
+| Search                      | Search and filter services/barbers                      |
+| Service details             | Description, price, duration, add-ons                   |
+| Barber list                 | Eligible barbers, ratings, availability                 |
+| Barber profile              | Experience, supported services, reviews                 |
+| Address selector            | Saved addresses, map, manual entry                      |
+| Date/time picker            | Available dates and slots                               |
+| Booking review              | Service breakdown, fee, total, policy                   |
+| Booking fee payment         | Gateway checkout and retry                              |
+| Booking confirmation        | Reference, payment receipt, appointment details         |
+| Active booking              | Status, barber, address, schedule, actions              |
+| Booking history             | Upcoming, completed, cancelled                          |
+| Reschedule                  | Alternative slots and confirmation                      |
+| Cancellation                | Policy, reason, refund status                           |
+| Direct payment confirmation | Amount, UPI/cash declaration, dispute option            |
+| Review                      | Rating, review, report issue                            |
+| Notifications               | Booking and payment updates                             |
+| Support                     | Tickets, help, complaints                               |
+| Profile                     | Personal information and saved preferences              |
+| Settings                    | Privacy, terms, notifications, logout, deletion request |
+
+## 8.2 Barber screens
+
+| Screen                | Required functions                            |
+| --------------------- | --------------------------------------------- |
+| Login / activation    | Secure access and account activation          |
+| Verification          | Profile and required document status          |
+| Dashboard             | Today's work and pending requests             |
+| Booking requests      | Accept/reject and request details             |
+| Appointment details   | Customer, services, amount, location          |
+| Navigation            | Map handoff and travel status                 |
+| Service execution     | Arrived, start, add-on approval, completion   |
+| Direct payment        | Record cash/UPI and amount received           |
+| Calendar              | Day/week/month schedule                       |
+| Availability          | Working hours, breaks, leave, blocked slots   |
+| Services              | Assigned services and allowed prices          |
+| Earnings/work history | Job totals and payment declarations           |
+| Reviews               | Ratings and feedback                          |
+| Notifications         | Booking and schedule changes                  |
+| Profile/settings      | Personal details, work area, account settings |
+| Help/support          | Report customer issue or contact admin        |
+
+## 8.3 Admin dashboard pages
+
+| Page                    | Required functions                         |
+| ----------------------- | ------------------------------------------ |
+| Admin login             | Secure authentication and session control  |
+| Overview                | Real metrics, trends, alerts               |
+| Customers               | Search, profile, history, account actions  |
+| Barbers                 | Approvals, profiles, verification, status  |
+| Services                | Categories, prices, duration, add-ons      |
+| Packages                | Combo services and pricing                 |
+| Bookings                | Search, status, assignment, timeline       |
+| Calendar                | Global schedules and conflict detection    |
+| Service areas           | Coverage, distance, travel rules           |
+| Booking fees            | Fixed/percentage fee configuration         |
+| Transactions            | Gateway records, verification, refunds     |
+| Direct-payment disputes | Declarations, complaints, resolution       |
+| Cancellations/no-shows  | Policy application and case history        |
+| Reviews/reports         | Moderation and complaint handling          |
+| Notifications           | Templates, broadcasts, delivery logs       |
+| Coupons/offers          | Optional promotion management              |
+| Reports                 | Bookings, fees, barber performance         |
+| Audit logs              | Admin actions and sensitive changes        |
+| Settings                | Policies, permissions, integrations        |
+| Backup/export           | Controlled exports and recovery operations |
+
+# 9. Complete API endpoint plan
+
+Use a REST API under a versioned prefix such as `/api/v1`. Every endpoint must validate the request, authenticate the caller where required, authorize the action, and return consistent errors.
+
+The following is a functional endpoint inventory, not a claim that these endpoints already exist.
+
+## 9.1 Authentication and account
+
+| Method   | Endpoint                | Purpose                             |
+| -------- | ----------------------- | ----------------------------------- |
+| `POST`   | `/auth/register`        | Register customer                   |
+| `POST`   | `/auth/otp/request`     | Request OTP                         |
+| `POST`   | `/auth/otp/verify`      | Verify OTP                          |
+| `POST`   | `/auth/login`           | Login                               |
+| `POST`   | `/auth/logout`          | Revoke session                      |
+| `POST`   | `/auth/refresh`         | Refresh session token               |
+| `POST`   | `/auth/password/forgot` | Start password recovery if used     |
+| `POST`   | `/auth/password/reset`  | Complete password recovery          |
+| `GET`    | `/me`                   | Get current user's profile          |
+| `PATCH`  | `/me`                   | Update profile                      |
+| `DELETE` | `/me`                   | Request or process account deletion |
+
+## 9.2 Services and discovery
+
+| Method | Endpoint                     | Purpose                                  |
+| ------ | ---------------------------- | ---------------------------------------- |
+| `GET`  | `/services`                  | Browse active services                   |
+| `GET`  | `/services/{id}`             | Service details                          |
+| `GET`  | `/service-categories`        | List categories                          |
+| `GET`  | `/packages`                  | List packages                            |
+| `GET`  | `/barbers`                   | Search eligible barbers                  |
+| `GET`  | `/barbers/{id}`              | Barber public profile                    |
+| `GET`  | `/barbers/{id}/services`     | Services offered by barber               |
+| `GET`  | `/barbers/{id}/availability` | Available slots                          |
+| `POST` | `/availability/search`       | Search slots by services, area, and date |
+| `GET`  | `/service-areas/check`       | Check location coverage                  |
+
+## 9.3 Addresses and bookings
+
+| Method   | Endpoint                         | Purpose                           |
+| -------- | -------------------------------- | --------------------------------- |
+| `GET`    | `/me/addresses`                  | List saved addresses              |
+| `POST`   | `/me/addresses`                  | Add address                       |
+| `PATCH`  | `/me/addresses/{id}`             | Update address                    |
+| `DELETE` | `/me/addresses/{id}`             | Remove address                    |
+| `POST`   | `/slot-holds`                    | Hold an available slot            |
+| `DELETE` | `/slot-holds/{id}`               | Release a hold                    |
+| `POST`   | `/bookings`                      | Create booking                    |
+| `GET`    | `/bookings`                      | List bookings visible to caller   |
+| `GET`    | `/bookings/{id}`                 | Get booking details               |
+| `POST`   | `/bookings/{id}/accept`          | Accept booking as assigned barber |
+| `POST`   | `/bookings/{id}/reject`          | Reject booking                    |
+| `POST`   | `/bookings/{id}/reschedule`      | Request/confirm rescheduling      |
+| `POST`   | `/bookings/{id}/cancel`          | Cancel booking                    |
+| `POST`   | `/bookings/{id}/reassign`        | Admin reassignment                |
+| `POST`   | `/bookings/{id}/on-the-way`      | Record travel status              |
+| `POST`   | `/bookings/{id}/arrived`         | Record arrival                    |
+| `POST`   | `/bookings/{id}/start`           | Start service                     |
+| `POST`   | `/bookings/{id}/change-request`  | Request add-on/price change       |
+| `POST`   | `/bookings/{id}/change-approval` | Record customer decision          |
+| `POST`   | `/bookings/{id}/complete`        | Complete service                  |
+| `GET`    | `/bookings/{id}/timeline`        | View booking event history        |
+
+## 9.4 Payments
+
+| Method | Endpoint                                | Purpose                            |
+| ------ | --------------------------------------- | ---------------------------------- |
+| `POST` | `/bookings/{id}/booking-fee/order`      | Create platform-fee payment order  |
+| `GET`  | `/payments/{id}`                        | Read payment status                |
+| `POST` | `/payments/{id}/verify`                 | Request server-side verification   |
+| `POST` | `/webhooks/payments/{provider}`         | Process gateway callback           |
+| `POST` | `/bookings/{id}/refund-requests`        | Create refund request              |
+| `GET`  | `/bookings/{id}/refunds`                | View refund status                 |
+| `POST` | `/bookings/{id}/direct-payment`         | Barber records payment declaration |
+| `POST` | `/bookings/{id}/direct-payment/confirm` | Customer confirms declaration      |
+| `POST` | `/bookings/{id}/direct-payment/dispute` | Report payment disagreement        |
+| `GET`  | `/me/payment-history`                   | View relevant payment history      |
+
+The public app must not be able to mark a gateway transaction successful just by sending `{ "status": "success" }`. The backend must verify the transaction with the payment provider or validate its authenticated webhook.
+
+## 9.5 Barber endpoints
+
+| Method   | Endpoint                         | Purpose                                  |
+| -------- | -------------------------------- | ---------------------------------------- |
+| `GET`    | `/barber/dashboard`              | Barber dashboard data                    |
+| `GET`    | `/barber/bookings`               | Barber's assigned bookings               |
+| `GET`    | `/barber/availability`           | Read availability                        |
+| `PUT`    | `/barber/availability`           | Update working hours                     |
+| `POST`   | `/barber/blocked-slots`          | Add time off                             |
+| `DELETE` | `/barber/blocked-slots/{id}`     | Remove blocked slot                      |
+| `GET`    | `/barber/services`               | View assigned services                   |
+| `PATCH`  | `/barber/profile`                | Update allowed profile fields            |
+| `GET`    | `/barber/work-history`           | Completed job history                    |
+| `GET`    | `/barber/earnings-summary`       | Service amounts and payment declarations |
+| `POST`   | `/barber/verification-documents` | Submit required documents                |
+
+## 9.6 Notifications, reviews, and support
+
+| Method | Endpoint                         | Purpose                |
+| ------ | -------------------------------- | ---------------------- |
+| `GET`  | `/notifications`                 | List notifications     |
+| `POST` | `/notifications/{id}/read`       | Mark notification read |
+| `PUT`  | `/me/notification-preferences`   | Update preferences     |
+| `POST` | `/bookings/{id}/reviews`         | Submit review          |
+| `GET`  | `/barbers/{id}/reviews`          | List approved reviews  |
+| `POST` | `/support/tickets`               | Create support ticket  |
+| `GET`  | `/support/tickets`               | List own tickets       |
+| `GET`  | `/support/tickets/{id}`          | View ticket            |
+| `POST` | `/support/tickets/{id}/messages` | Send support message   |
+
+## 9.7 Admin endpoints
+
+| Method   | Endpoint                        | Purpose                         |
+| -------- | ------------------------------- | ------------------------------- |
+| `GET`    | `/admin/dashboard`              | Overview metrics                |
+| `GET`    | `/admin/customers`              | Search customers                |
+| `PATCH`  | `/admin/customers/{id}/status`  | Suspend/reactivate              |
+| `GET`    | `/admin/barbers`                | Search barbers                  |
+| `POST`   | `/admin/barbers`                | Invite/create barber            |
+| `PATCH`  | `/admin/barbers/{id}/approval`  | Approve/reject                  |
+| `PATCH`  | `/admin/barbers/{id}/status`    | Update barber status            |
+| `POST`   | `/admin/services`               | Create service                  |
+| `PATCH`  | `/admin/services/{id}`          | Update service                  |
+| `DELETE` | `/admin/services/{id}`          | Archive/deactivate service      |
+| `GET`    | `/admin/bookings`               | Search all bookings             |
+| `POST`   | `/admin/bookings/{id}/override` | Authorized booking intervention |
+| `GET`    | `/admin/payments`               | Platform fee transaction list   |
+| `POST`   | `/admin/refunds/{id}/process`   | Process eligible refund         |
+| `GET`    | `/admin/disputes`               | List disputes                   |
+| `POST`   | `/admin/disputes/{id}/resolve`  | Record resolution               |
+| `GET`    | `/admin/reports`                | Reports and metrics             |
+| `GET`    | `/admin/audit-logs`             | Audit records                   |
+| `GET`    | `/admin/settings`               | Read configuration              |
+| `PATCH`  | `/admin/settings`               | Update authorized settings      |
+
+### API standards
+
+- Use pagination for large lists.
+- Validate all input server-side.
+- Use ISO 8601 timestamps and store times consistently; display the user's local time.
+- Use integer minor currency units, such as paise, for calculations rather than floating-point arithmetic.
+- Add idempotency keys to booking creation, payment orders, and refund requests.
+- Use consistent error codes such as `SLOT_UNAVAILABLE`, `PAYMENT_PENDING`, `BOOKING_ALREADY_CANCELLED`, and `FORBIDDEN`.
+- Return only fields that the caller is allowed to see.
+- Do not expose internal database errors, secrets, or payment credentials.
+
+# 10. Database design — all major tables
+
+A relational database such as PostgreSQL is a strong fit for bookings, payments, schedules, and reporting.
+
+## 10.1 Identity and user tables
+
+| Table               | Important fields                                                            |
+| ------------------- | --------------------------------------------------------------------------- |
+| `users`             | `id`, `name`, `phone`, `email`, `role`, `status`, `created_at`              |
+| `user_sessions`     | `id`, `user_id`, `device_info`, `expires_at`, `revoked_at`                  |
+| `otp_challenges`    | `id`, `phone`, `otp_hash`, `expires_at`, `attempt_count`                    |
+| `customer_profiles` | `user_id`, `photo_url`, `preferences`                                       |
+| `barber_profiles`   | `user_id`, `bio`, `experience_years`, `approval_status`, `rating_summary`   |
+| `barber_documents`  | `id`, `barber_id`, `document_type`, `file_reference`, `verification_status` |
+| `admin_permissions` | `admin_user_id`, `permission_key`                                           |
+| `user_consents`     | `user_id`, `policy_version`, `consent_type`, `accepted_at`                  |
+
+Use a secure authentication provider where practical. Never store plaintext passwords or plaintext OTPs.
+
+## 10.2 Service catalog tables
+
+| Table                   | Important fields                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `service_categories`    | `id`, `name`, `sort_order`, `is_active`                                                   |
+| `services`              | `id`, `category_id`, `name`, `description`, `base_price`, `duration_minutes`, `is_active` |
+| `service_media`         | `id`, `service_id`, `file_reference`, `sort_order`                                        |
+| `barber_services`       | `barber_id`, `service_id`, `custom_price`, `duration_override`, `is_active`               |
+| `service_packages`      | `id`, `name`, `price`, `duration_minutes`, `is_active`                                    |
+| `package_items`         | `package_id`, `service_id`, `quantity`                                                    |
+| `service_price_history` | `service_id`, `old_price`, `new_price`, `effective_at`, `changed_by`                      |
+
+## 10.3 Location and scheduling tables
+
+| Table                  | Important fields                                                      |
+| ---------------------- | --------------------------------------------------------------------- |
+| `customer_addresses`   | `id`, `customer_id`, `label`, `address_text`, `latitude`, `longitude` |
+| `service_areas`        | `id`, `name`, `boundary_or_postcodes`, `is_active`                    |
+| `barber_service_areas` | `barber_id`, `service_area_id`, `max_distance`                        |
+| `barber_working_hours` | `barber_id`, `weekday`, `start_time`, `end_time`                      |
+| `barber_breaks`        | `barber_id`, `start_time`, `end_time`                                 |
+| `barber_time_off`      | `id`, `barber_id`, `start_at`, `end_at`, `reason`                     |
+| `slot_holds`           | `id`, `barber_id`, `start_at`, `end_at`, `expires_at`, `status`       |
+| `booking_assignments`  | `id`, `booking_id`, `barber_id`, `assigned_at`, `ended_at`, `reason`  |
+
+Location data should be protected and not exposed publicly in full.
+
+## 10.4 Booking and service tables
+
+| Table                      | Important fields                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| `bookings`                 | `id`, `booking_number`, `customer_id`, `barber_id`, `status`, `start_at`, `end_at`           |
+| `booking_items`            | `id`, `booking_id`, `service_id`, `service_name_snapshot`, `unit_price`, `duration_minutes`  |
+| `booking_addresses`        | `booking_id`, `address_snapshot`, `latitude`, `longitude`                                    |
+| `booking_price_breakdowns` | `booking_id`, `service_subtotal`, `travel_charge`, `discount`, `tax`, `booking_fee`, `total` |
+| `booking_change_requests`  | `id`, `booking_id`, `requested_by`, `change_details`, `price_delta`, `status`                |
+| `booking_status_events`    | `id`, `booking_id`, `from_status`, `to_status`, `actor_id`, `created_at`                     |
+| `booking_notes`            | `id`, `booking_id`, `author_id`, `note_type`, `content`                                      |
+| `no_show_records`          | `id`, `booking_id`, `reported_by`, `reason`, `resolution_status`                             |
+
+The booking item and address snapshots preserve the details agreed at booking time, even if the catalog or address is later edited.
+
+## 10.5 Payments and finance tables
+
+| Table                          | Important fields                                                                          |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `payment_orders`               | `id`, `booking_id`, `amount_minor`, `currency`, `provider`, `provider_order_id`, `status` |
+| `payment_transactions`         | `id`, `payment_order_id`, `provider_payment_id`, `amount_minor`, `status`, `verified_at`  |
+| `payment_webhook_events`       | `id`, `provider_event_id`, `received_at`, `processing_status`                             |
+| `refunds`                      | `id`, `payment_transaction_id`, `amount_minor`, `reason`, `status`, `provider_refund_id`  |
+| `direct_payment_records`       | `id`, `booking_id`, `barber_id`, `amount_minor`, `method`, `declared_status`              |
+| `direct_payment_confirmations` | `id`, `direct_payment_id`, `customer_id`, `decision`, `created_at`                        |
+| `payment_disputes`             | `id`, `booking_id`, `raised_by`, `reason`, `status`, `resolution`                         |
+| `platform_fee_ledger`          | `id`, `booking_id`, `amount_minor`, `entry_type`, `created_at`                            |
+
+A direct-payment record is a record of what the barber and customer declare. It is not equivalent to a platform gateway transaction.
+
+## 10.6 Ratings, notifications, and operations
+
+| Table                     | Important fields                                                               |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| `reviews`                 | `id`, `booking_id`, `customer_id`, `barber_id`, `rating`, `comment`, `status`  |
+| `notifications`           | `id`, `user_id`, `type`, `title`, `body`, `read_at`                            |
+| `notification_deliveries` | `id`, `notification_id`, `channel`, `delivery_status`, `sent_at`               |
+| `support_tickets`         | `id`, `created_by`, `booking_id`, `category`, `status`, `assigned_to`          |
+| `support_messages`        | `id`, `ticket_id`, `sender_id`, `message`, `created_at`                        |
+| `audit_logs`              | `id`, `actor_id`, `action`, `entity_type`, `entity_id`, `reason`, `created_at` |
+| `app_settings`            | `key`, `value`, `updated_by`, `updated_at`                                     |
+| `idempotency_records`     | `key`, `operation_type`, `result_reference`, `created_at`                      |
+
+### Database rules
+
+- Every primary entity gets a stable unique ID.
+- Foreign keys maintain relationships.
+- Use database constraints for valid amounts, ratings, and required fields.
+- Store timestamps consistently, preferably in UTC, and display local time.
+- Use transactions for booking, payment, refund, and reassignment operations.
+- Prevent overlapping active reservations using database-backed locking or appropriate exclusion/constraint logic.
+- Never permanently delete financial records just to hide a failed transaction.
+- Restrict personal and location data through authorization policies.
+- Index frequently searched columns such as booking ID, customer ID, barber ID, status, and appointment time.
+
+# 11. Notifications and automation
+
+The app should send events automatically rather than relying on users to refresh their screens.
+
+| Event                   | Customer receives            | Barber receives           | Admin receives      |
+| ----------------------- | ---------------------------- | ------------------------- | ------------------- |
+| Booking request created | Booking/payment progress     | New request               | Optional alert      |
+| Booking confirmed       | Confirmation and receipt     | Confirmed appointment     | Dashboard update    |
+| Barber rejects request  | Reassignment/status update   | Confirmation of rejection | Optional exception  |
+| Booking reassigned      | New barber details           | New assignment            | Audit event         |
+| Appointment approaching | Reminder                     | Reminder                  | Optional exception  |
+| Barber on the way       | Travel update                | Status confirmation       | —                   |
+| Barber arrives          | Arrival notification         | Status confirmation       | —                   |
+| Service completed       | Completion and review prompt | Completion confirmation   | Dashboard update    |
+| Booking fee fails       | Retry/status message         | No false confirmation     | Payment exception   |
+| Refund changes state    | Refund status                | Policy-dependent update   | Refund log          |
+| Direct payment disputed | Dispute reference            | Dispute reference         | Investigation alert |
+| Booking cancelled       | Cancellation details         | Cancellation details      | Audit record        |
+
+Recommended delivery channels:
+
+- Push notifications using a service such as Firebase Cloud Messaging.
+- SMS for essential updates where necessary.
+- Email receipts and account communications where configured.
+- In-app notifications as the durable record of important events.
+
+Notifications should be generated from backend events and retried safely. A failed notification must not reverse a successfully confirmed booking.
+
+# 12. Security, privacy, and fraud prevention
+
+These requirements are essential because the app handles customer addresses, home visits, accounts, and payments.
+
+## Authentication and access
+
+- Use secure authentication and session expiration.
+- Verify authorization on every protected endpoint.
+- Enforce role-based access on the server.
+- A customer can access only their own bookings and addresses.
+- A barber can access only bookings assigned to them, subject to booking-stage rules.
+- An admin can perform only permitted administrative actions.
+- Protect administrative accounts with stronger authentication.
+- Rate-limit OTP requests, logins, and sensitive endpoints.
+- Revoke compromised sessions.
+
+## Customer and location privacy
+
+- Collect only necessary location information.
+- Ask for permission at the point where it is needed.
+- Keep full customer addresses hidden from unassigned barbers.
+- Reveal an address only when the booking workflow authorizes it.
+- Avoid exposing exact home locations in public barber search.
+- Limit how long location data is retained.
+- Secure document uploads and customer support attachments.
+- Publish a clear privacy policy and account-deletion process.
+
+## Payment safety
+
+- Do not store raw card data.
+- Use the payment provider's secure checkout.
+- Keep gateway secrets on the server.
+- Verify webhook signatures.
+- Verify amount and currency.
+- Deduplicate repeated webhook events.
+- Keep an auditable refund history.
+- Do not trust payment screenshots as automatic proof.
+- Clearly distinguish platform payments from direct barber payments.
+
+## Operational safety
+
+- Provide a way to report misconduct or unsafe situations.
+- Maintain appointment and status-change history.
+- Avoid publishing personal contact details unnecessarily.
+- Consider identity verification for barbers.
+- Provide customer and barber support for emergencies.
+- Do not expose a customer's address to every barber in the area.
+
+## Reliability and data recovery
+
+- Automatic database backups.
+- Tested restoration procedures.
+- Error tracking and server logs.
+- Monitoring for failed payments and stuck bookings.
+- Retry queues for notifications and webhooks.
+- Safe recovery when an app closes mid-booking.
+- Database migrations and versioned API contracts.
+
+# 13. Recommended technical architecture
+
+A practical architecture is an Android app, a backend API, a relational database, and a separate admin web dashboard.
+
+Android application
+
+Customer and barber experiences
+
+Backend API and business logic
+
+Authentication, booking engine, scheduling, payment verification, permissions
+
+PostgreSQL
+
+Users, bookings, schedules, payments
+
+Background jobs
+
+Reminders, retries, expirations, refunds
+
+External integrations
+
+Maps and geocoding
+
+Payment gateway
+
+SMS/email
+
+Admin web panel
+
+## Suggested technology choices
+
+| Layer               | Suggested choice                                                          | Reason                                                |
+| ------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Android             | Kotlin + Jetpack Compose                                                  | Native Android UI and platform integration            |
+| Backend             | Node.js + TypeScript, or another mature server framework                  | Centralized, testable business rules                  |
+| Database            | PostgreSQL                                                                | Transactions, relational records, booking constraints |
+| Authentication      | Managed auth or a properly implemented server-side identity system        | Secure accounts and sessions                          |
+| Admin panel         | React + TypeScript                                                        | Flexible web-based administration                     |
+| Push notifications  | Firebase Cloud Messaging                                                  | Android push delivery                                 |
+| Maps                | Google Maps Platform or another suitable provider                         | Address lookup and navigation                         |
+| Booking-fee gateway | An India-supported gateway such as Razorpay, after checking current terms | Online fee collection and refund APIs                 |
+| Hosting             | Managed cloud hosting                                                     | Deployment, monitoring, and backups                   |
+| Error monitoring    | Crash reporting and backend monitoring                                    | Diagnose production failures                          |
+
+You do not have to use this exact stack. The essential requirement is that booking, scheduling, and payment decisions happen securely on the backend.
+
+## 13.1 Background jobs the backend needs
+
+- Expire abandoned slot holds.
+- Expire unanswered barber requests.
+- Send upcoming appointment reminders.
+- Retry failed notification delivery.
+- Process payment webhooks safely.
+- Check for payments stuck in pending status.
+- Process eligible refunds.
+- Flag incomplete or contradictory booking states.
+- Generate daily/weekly operational summaries.
+- Purge or anonymize data according to the retention policy.
+
+These jobs must be idempotent so that retrying one does not accidentally charge twice, refund twice, or send contradictory booking updates.
+
+# 14. Business rules the developer must implement
+
+Use this as a functional acceptance checklist.
+
+## Implementation checklist
+
+0/28 checked
+
+Accounts
+
+Only approved, active barbers can receive assignments.
+
+Customers cannot access another customer's bookings or saved addresses.
+
+Barbers cannot access unassigned customer addresses.
+
+Admin overrides require permission and an audit reason.
+
+Services and prices
+
+Only active services can be booked.
+
+Every selected service must be offered by the assigned barber.
+
+Prices and duration are snapshotted at booking time.
+
+Added services require customer approval before the final price changes.
+
+Scheduling
+
+No overlapping confirmed appointments or active holds for the same barber.
+
+A slot must fit service duration, working hours, and travel buffer.
+
+Expired holds release their slots.
+
+A reassignment must validate the replacement barber's availability.
+
+Booking fee
+
+A booking fee is confirmed only after server-side verification.
+
+Duplicate payment callbacks cannot duplicate a transaction.
+
+A failed or pending payment cannot be treated as paid.
+
+Successful payment with failed booking triggers recovery or refund handling.
+
+Direct payment
+
+The barber's service amount is separate from the platform fee.
+
+The barber records the actual amount and payment method.
+
+Customer confirmation or dispute is recorded independently.
+
+Direct payment declarations are not reported as platform-collected revenue.
+
+Cancellation and support
+
+Cancellation eligibility is checked against the saved policy.
+
+Refund status remains pending until confirmed by the provider.
+
+Disputes preserve the original records.
+
+Every resolution is recorded and communicated to the parties.
+
+Reliability
+
+Booking creation is safe against simultaneous requests.
+
+Critical operations use database transactions.
+
+Money uses integer minor units and a defined currency.
+
+All critical state transitions have timestamps and audit events.
+
+Reset checklistCopy checklist
+
+# 15. Testing plan — cover failures, not only happy paths
+
+## 15.1 Customer tests
+
+- Register and verify a new account.
+- Sign in and recover an account.
+- Add, edit, and delete an address.
+- Browse active services.
+- Attempt to book an inactive service.
+- Search barbers outside the service area.
+- Book one service and a multi-service package.
+- Test unavailable slots.
+- Test booking-fee success, failure, timeout, and retry.
+- Cancel and reschedule according to policy.
+- View correct receipts and booking history.
+- Submit a review only after a qualifying completed booking.
+- Try to access another customer's booking ID.
+
+## 15.2 Barber tests
+
+- Log in as a pending or suspended barber.
+- Accept a valid booking.
+- Reject a request.
+- Attempt to accept an expired request.
+- Attempt to accept two conflicting jobs.
+- Set leave over an existing appointment.
+- View the correct customer location for an assigned job.
+- Attempt to access an unassigned job.
+- Mark arrival, start, and completion in the correct order.
+- Request an extra service and test customer approval.
+- Record cash and UPI declarations.
+- Record partial or disputed payment.
+- Cancel a booking and test reassignment.
+
+## 15.3 Admin tests
+
+- Approve and reject barbers.
+- Suspend and reactivate accounts.
+- Create and update services.
+- Change a price and verify old bookings retain their snapshot.
+- Search and filter bookings.
+- Reassign a barber.
+- Configure booking fee and cancellation policy.
+- View successful, failed, and refunded transactions.
+- Resolve a dispute.
+- Export permitted reports.
+- Verify that unauthorized staff cannot access protected functions.
+- Verify that admin actions are audited.
+
+## 15.4 Payment and concurrency tests
+
+These are especially important:
+
+- Two customers attempt to reserve the same slot simultaneously.
+- The payment provider sends the same webhook twice.
+- The payment succeeds but the customer closes the app.
+- The payment succeeds after the slot hold expires.
+- The provider sends success and failure events out of order.
+- A refund is requested twice.
+- The barber declares payment while the customer disputes it.
+- Network connectivity drops during confirmation.
+- The server restarts during booking creation.
+- A notification fails after the booking is confirmed.
+
+The expected outcome should always be defined: one valid reservation, one valid transaction record, no duplicate charge, and a recoverable state.
+
+# 16. Development roadmap: build in the correct order
+
+Do not try to build every advanced feature simultaneously. Implement the core modules in dependency order while keeping the full architecture in mind.
+
+Phase 1
+
+Foundation and backend
+
+- Authentication and role-based access.
+- Database schema and migrations.
+- Service catalog and prices.
+- Barber approval and profiles.
+- Customer addresses.
+- Admin settings and audit logs.
+
+Must work first
+
+Phase 2
+
+Booking engine
+
+- Barber availability and time off.
+- Slot holds and concurrency protection.
+- Service-duration and travel-buffer calculations.
+- Customer booking flow.
+- Barber acceptance and rejection.
+- Cancellation and reassignment.
+
+Phase 3
+
+Payments and completion
+
+- Booking-fee gateway integration.
+- Server-side verification and webhook handling.
+- Booking confirmation.
+- Barber trip and service statuses.
+- Direct cash/UPI payment records.
+- Receipts, cancellations, refunds, and disputes.
+
+Phase 4
+
+Operational completeness
+
+- Notifications and reminders.
+- Reviews and support tickets.
+- Admin analytics and reports.
+- Monitoring, backup, and recovery.
+- Security and end-to-end testing.
+
+Phase 5
+
+UI polish and launch
+
+- Premium Android interface.
+- Smooth navigation and transitions.
+- Loading, empty, and error states.
+- Accessibility and smaller-screen support.
+- Beta testing and Play Store preparation.
+
+## 17. Features that can wait until after the first release
+
+These are useful but not essential to prove the business model:
+
+- Live GPS tracking throughout the journey.
+- AI-based barber recommendations.
+- Automated barber matching based on distance and workload.
+- Loyalty points and referral rewards.
+- Coupon engine and promotional campaigns.
+- Family or group bookings.
+- Subscription plans.
+- Advanced demand forecasting.
+- In-app chat.
+- Multi-language UI.
+- Dynamic pricing.
+- Barber performance prediction.
+- Advanced fraud detection.
+- Multiple cities and service-zone expansion.
+
+Keep the design extensible so these features can be added without rebuilding the booking and payment systems.
+
+## 18. Business policies you must decide before launch
+
+The developer cannot safely invent these decisions.
+
+| Decision              | Options to define                                                   |
+| --------------------- | ------------------------------------------------------------------- |
+| Booking fee           | Fixed amount, percentage, or configurable rules                     |
+| Barber assignment     | Customer chooses, automatic assignment, or both                     |
+| Barber response       | How long a request remains pending                                  |
+| Slot hold             | How long the slot remains reserved during payment                   |
+| Service pricing       | Platform-set price or permitted barber-specific prices              |
+| Travel charges        | Included, fixed charge, or distance-based                           |
+| Direct payment        | Full payment after service or explicitly supported partial payments |
+| Customer cancellation | Cutoff and fee-refund rules                                         |
+| Barber cancellation   | Reassignment and customer refund rules                              |
+| No-show               | Evidence, waiting period, and resolution policy                     |
+| Extra services        | Allowed catalog additions and approval process                      |
+| Service completion    | Barber declaration, customer confirmation, or both                  |
+| Payment dispute       | Investigation and resolution procedure                              |
+| Service coverage      | Supported areas and distance limits                                 |
+| Customer support      | Operating hours and escalation procedure                            |
+| Data retention        | How long addresses, booking records, and documents are kept         |
+
+For India, have the payment flow, tax treatment, consumer-facing policies, privacy practices, and relevant business obligations reviewed before launch. Gateway availability and terms can vary by business model.
+
+# 19. Final launch acceptance checklist
+
+The application is not ready just because the screens look finished.
+
+Before launch, verify these complete scenarios:
+
+- Admin can create services and approve barbers.
+- Customer can browse services and choose a valid barber.
+- The system correctly validates the address and available slot.
+- The customer can pay the booking-confirmation fee.
+- The backend verifies payment before confirmation.
+- Simultaneous requests cannot double-book the same barber.
+- Barber receives and responds to the booking.
+- Customer and barber see consistent booking statuses.
+- Barber can navigate to the customer and complete the service.
+- Additional services require customer approval.
+- The barber can record direct UPI or cash payment.
+- The customer can confirm or dispute that record.
+- The platform fee and barber's service charges remain separate.
+- Cancellations, refunds, and reassignment follow the configured policy.
+- Admin can investigate issues without erasing history.
+- Unauthorized users cannot access another user's private information.
+- Payment, booking, and notification failures can be recovered safely.
+- Database backup and restoration have been tested.
+- The privacy policy, terms, support channel, and release monitoring are ready.
+
+## My final recommendation
+
+Build this as one Android app with role-based Customer and Barber experiences, plus a separate web-based Admin dashboard, supported by a secure backend and PostgreSQL database.
+
+Keep these three principles central to the implementation:
+
+1. The booking engine is the core product. Availability, slot locking, assignment, and status transitions must be reliable.
+2. Money must be tracked according to who actually receives it. The platform receives the booking fee; the barber receives the service payment directly. The app records those as separate financial events.
+3. Build functionality before visual effects. First make every end-to-end workflow work reliably. Then add the premium animations, polished screens, and visual identity.
+
+This specification is the complete functional foundation for your home-barber marketplace. It covers the primary roles, workflows, service catalog, endpoint inventory, data model, business rules, security, testing, and launch requirements. Individual features can then be turned into developer tickets and implemented in the roadmap order above.
