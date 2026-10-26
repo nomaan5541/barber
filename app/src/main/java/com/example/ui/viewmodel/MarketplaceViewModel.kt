@@ -88,7 +88,7 @@ class MarketplaceViewModel(
     private val _selectedAddressId = MutableStateFlow<String?>(null)
     val selectedAddressId: StateFlow<String?> = _selectedAddressId.asStateFlow()
 
-    private val _selectedDateKey = MutableStateFlow(defaultTomorrowDateKey())
+    private val _selectedDateKey = MutableStateFlow(defaultTodayDateKey())
     val selectedDateKey: StateFlow<String> = _selectedDateKey.asStateFlow()
 
     private val _selectedStartHour = MutableStateFlow<Long?>(null)
@@ -349,35 +349,49 @@ class MarketplaceViewModel(
         _selectedStartHour.value = hour
     }
 
-    fun upcomingDateOptions(): List<Pair<String, String>> {
+    fun todayDateKey(): String = defaultTodayDateKey()
+
+    fun tomorrowDateKey(): String = defaultTomorrowDateKey()
+
+    fun upcomingDateOptions(daysCount: Int = 14): List<Pair<String, String>> {
         val fmtKey = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val fmtLabel = SimpleDateFormat("EEE, dd MMM", Locale.US)
         val cal = Calendar.getInstance()
-        return (0..6).map { offset ->
+        return (0 until daysCount).map { offset ->
             if (offset > 0) cal.add(Calendar.DAY_OF_YEAR, 1)
             fmtKey.format(cal.time) to fmtLabel.format(cal.time)
         }
     }
 
     /**
-     * Platform fee for customers is ₹0. Instead, the platform charges a commission from the Barber.
+     * Resolves the Booking Confirmation Fee paid now by the customer (default ₹30, configurable by Admin).
+     */
+    fun calculateBookingConfirmationFeePaise(serviceSubtotalPaise: Long, config: PlatformConfig): Long {
+        return config.effectiveCustomerBookingFeePaise(serviceSubtotalPaise)
+    }
+
+    /**
+     * Resolves any optional partner commission recorded for analytics/settlement.
      */
     fun calculateBarberCommissionPaise(barberPayablePaise: Long, config: PlatformConfig): Long {
-        return when (config.bookingFeeType) {
-            "BARBER_FLAT_FEE" -> config.barberFlatFeePaise.coerceIn(0L, barberPayablePaise)
-            else -> {
-                val bps = if (config.barberCommissionBps > 0L) config.barberCommissionBps else 1500L
-                ((barberPayablePaise * bps) / 10000L).coerceIn(0L, barberPayablePaise)
-            }
+        return when {
+            config.bookingFeeType == "BARBER_FLAT_FEE" ->
+                config.barberFlatFeePaise.coerceIn(0L, barberPayablePaise)
+            config.barberCommissionBps > 0L ->
+                ((barberPayablePaise * config.barberCommissionBps) / 10000L).coerceIn(0L, barberPayablePaise)
+            else -> 0L
         }
     }
 
     fun availableSlotsForBarber(
         barber: BarberProfile,
         dateKey: String,
-        activeLocks: List<SlotLock>
+        activeLocks: List<SlotLock>,
+        locallyBlockedSlots: Set<String> = emptySet(),
+        unavailableDates: Set<String> = emptySet()
     ): List<Long> {
         if (!barber.isOnline || barber.approvalStatus != "APPROVED") return emptyList()
+        if (unavailableDates.contains(dateKey)) return emptyList()
         val lockedHours = activeLocks
             .filter { it.barberId == barber.barberId && it.dateKey == dateKey && (it.status == "HELD" || it.status == "CONFIRMED") }
             .map { it.hourSlot }
@@ -386,7 +400,8 @@ class MarketplaceViewModel(
         val slots = mutableListOf<Long>()
         for (h in barber.workStartHour until barber.workEndHour) {
             val isBreak = h >= barber.breakStartHour && h < barber.breakEndHour
-            if (!isBreak && !lockedHours.contains(h)) {
+            val isLocallyBlocked = locallyBlockedSlots.contains("${dateKey}_$h")
+            if (!isBreak && !lockedHours.contains(h) && !isLocallyBlocked) {
                 slots.add(h)
             }
         }
@@ -495,20 +510,23 @@ class MarketplaceViewModel(
         repository.deleteCustomerAddress(addressId)
     }
 
-    fun confirmZeroFeeBooking(
+    fun confirmCustomerBooking(
         customerName: String,
         customerPhone: String,
         barber: BarberProfile,
         selectedServices: List<CatalogService>,
         address: CustomerAddress,
         travelChargePaise: Long,
+        platformBookingFeePaise: Long,
         barberCommissionPaise: Long,
         dateKey: String,
         startHour: Long,
         customerNotes: String,
         policySnapshot: String,
+        bookingFeeTxRef: String = "",
         onSuccess: (String) -> Unit
     ) {
+        if (_isBusy.value) return
         viewModelScope.launch {
             _isBusy.value = true
             try {
@@ -523,13 +541,15 @@ class MarketplaceViewModel(
                     dateKey = dateKey,
                     startHour = startHour,
                     customerNotes = customerNotes,
-                    policySnapshot = policySnapshot
+                    policySnapshot = policySnapshot,
+                    platformBookingFeePaise = platformBookingFeePaise,
+                    bookingFeeTxRef = bookingFeeTxRef
                 )
                 clearSelectedServices()
-                _statusBanner.value = "Slot reserved with ₹0 booking fee! Request sent to ${barber.name}."
+                _statusBanner.value = "Booking confirmed! Waiting for ${barber.name} to confirm your slot."
                 onSuccess(bookingId)
             } catch (e: Exception) {
-                _statusBanner.value = e.localizedMessage ?: "Booking failed"
+                _statusBanner.value = e.localizedMessage ?: "Booking could not be confirmed"
             } finally {
                 _isBusy.value = false
             }
@@ -539,7 +559,7 @@ class MarketplaceViewModel(
     fun repeatBooking(booking: Booking) {
         _selectedServiceIds.value = booking.serviceIds.toSet()
         _selectedBarberId.value = booking.barberId
-        _statusBanner.value = "Loaded services & barber from ${booking.bookingNumber}. Pick a date & slot!"
+        _statusBanner.value = "Selected ${booking.serviceNamesSummary}. Choose your date & time!"
     }
 
     fun customerCancelBooking(booking: Booking, reason: String) = runAction("Booking cancelled & slot released") {
@@ -574,15 +594,30 @@ class MarketplaceViewModel(
 
     // --- Barber Actions ---
 
+    fun barberToggleOnline(isOnline: Boolean) =
+        runAction(if (isOnline) "You are now Online and receiving booking requests" else "You are now Offline") {
+            repository.setBarberOnlineStatus(isOnline)
+        }
+
     fun barberRespond(booking: Booking, accept: Boolean, reason: String = "") =
-        runAction(if (accept) "Appointment accepted & locked!" else "Request rejected & slot freed") {
+        runAction(if (accept) "Booking accepted! Customer notified." else "Request declined & time slot released") {
             repository.barberRespondToBooking(booking, accept, reason)
         }
 
     fun barberAdvanceTripStatus(bookingId: String, nextStatus: String) =
-        runAction("Status updated to $nextStatus") {
+        runAction(
+            when (nextStatus) {
+                "ON_THE_WAY" -> "Marked On My Way — customer notified"
+                "ARRIVED" -> "Marked Arrived at customer's home"
+                "IN_PROGRESS" -> "Service started"
+                "COMPLETED" -> "Service marked completed! Now record direct payment below."
+                else -> "Status updated"
+            }
+        ) {
             repository.barberUpdateExecutionStatus(bookingId, nextStatus)
         }
+
+    fun barberFinishService(bookingId: String) = barberAdvanceTripStatus(bookingId, "COMPLETED")
 
     fun barberRequestExtraService(bookingId: String, service: CatalogService) =
         runAction("Sent ${service.name} approval request to customer") {
@@ -595,7 +630,7 @@ class MarketplaceViewModel(
         method: String,
         amountReceivedPaise: Long,
         referenceNote: String
-    ) = runAction("Direct service payment recorded") {
+    ) = runAction("Direct payment record saved separately from completion history") {
         repository.barberRecordDirectPayment(bookingId, declaredStatus, method, amountReceivedPaise, referenceNote)
     }
 
@@ -610,8 +645,9 @@ class MarketplaceViewModel(
         shopName: String,
         shopAddress: String,
         skillsText: String,
-        serviceIds: List<String>
-    ) = runAction("Barber schedule, shop details & skills saved") {
+        serviceIds: List<String>,
+        workingDays: List<String> = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+    ) = runAction("Working hours, travel buffer & profile saved") {
         val parsedSkills = skillsText.split(",").map { it.trim() }.filter { it.isNotBlank() }
         repository.updateBarberScheduleAndAvailability(
             isOnline = isOnline,
@@ -624,13 +660,14 @@ class MarketplaceViewModel(
             shopName = shopName,
             shopAddress = shopAddress,
             skills = parsedSkills,
-            serviceIds = serviceIds
+            serviceIds = serviceIds,
+            workingDays = workingDays
         )
     }
 
     // --- Admin Actions ---
 
-    fun adminBootstrapCatalog() = runAction("Master catalog, partner barber shops & barber commission policy synced!") {
+    fun adminBootstrapCatalog() = runAction("Master catalog, verified barbers & ₹30 booking fee policy synced!") {
         repository.adminBootstrapMasterCatalog()
     }
 
@@ -665,19 +702,22 @@ class MarketplaceViewModel(
         )
     }
 
-    fun adminSaveBarberCommissionPolicy(
-        commissionMode: String,
-        barberCommissionBps: Long,
-        barberFlatFeeRupees: Long,
+    fun adminSavePlatformPolicy(
+        bookingFeeType: String,
+        fixedBookingFeeRupees: Long,
+        percentageBookingFeeBps: Long = 0L,
+        barberCommissionBps: Long = 0L,
         cutoffHours: Long,
         slotHoldMinutes: Long,
         policyText: String,
         maintenanceMode: Boolean
-    ) = runAction("Barber commission & cancellation policy updated") {
+    ) = runAction("Booking confirmation fee & cancellation policy updated") {
         repository.adminUpdatePlatformConfig(
-            bookingFeeType = commissionMode,
+            bookingFeeType = bookingFeeType,
+            fixedBookingFeePaise = fixedBookingFeeRupees * 100L,
+            percentageBookingFeeBps = percentageBookingFeeBps,
             barberCommissionBps = barberCommissionBps,
-            barberFlatFeePaise = barberFlatFeeRupees * 100L,
+            barberFlatFeePaise = 0L,
             freeCancellationCutoffHours = cutoffHours,
             slotHoldMinutes = slotHoldMinutes,
             policyText = policyText,
@@ -721,7 +761,12 @@ class MarketplaceViewModel(
     companion object {
         private const val TAG = "MarketplaceVM"
 
-        private fun defaultTomorrowDateKey(): String {
+        fun defaultTodayDateKey(): String {
+            val cal = Calendar.getInstance()
+            return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        }
+
+        fun defaultTomorrowDateKey(): String {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, 1)
             return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)

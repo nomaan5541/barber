@@ -1,26 +1,36 @@
 package com.example
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performTextReplacement
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.model.BarberProfile
+import com.example.data.model.Booking
+import com.example.data.model.CustomerAddress
+import com.example.data.model.PlatformConfig
+import com.example.ui.barber.BarberDashboardScreen
+import com.example.ui.customer.BookingPaymentStep
+import com.example.ui.customer.CustomerBookingsScreen
+import com.example.ui.customer.CustomerHomeScreen
 import com.example.ui.customer.DoorNumberSetupScreen
-import com.example.ui.customer.GuestAccountHubScreen
-import com.example.ui.customer.GuestCartScreen
-import com.example.ui.customer.ServiceSelectionLandingScreen
 import com.example.ui.customer.canonicalGroomingCatalog
+import com.example.ui.glass.LiquidGlassNavigationDock
 import com.example.ui.navigation.AppRoutes
+import com.example.ui.navigation.barberNavTabs
 import com.example.ui.navigation.customerNavTabs
 import com.example.ui.theme.DoorCutTheme
 import com.example.util.DetectedDoorLocation
@@ -51,30 +61,48 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `bottom navigation places cart tab immediately after bookings and catalog includes normal and traditional haircuts`() {
+    fun `customer and barber navigation tabs and grooming catalog match dual-mode specification`() {
         assertEquals(
             listOf(
-                AppRoutes.ROUTE_SERVICE_SELECTION,
+                AppRoutes.ROUTE_CUSTOMER_HOME,
                 AppRoutes.ROUTE_BOOKINGS,
-                AppRoutes.ROUTE_CART,
-                AppRoutes.ROUTE_ADDRESSES,
+                AppRoutes.ROUTE_FAVOURITES,
                 AppRoutes.ROUTE_PROFILE
             ),
             customerNavTabs.map { it.route }
         )
+        assertEquals("nav_customer_home", customerNavTabs[0].testTag)
         assertEquals("nav_customer_bookings", customerNavTabs[1].testTag)
-        assertEquals("nav_customer_cart", customerNavTabs[2].testTag)
+        assertEquals("nav_customer_favourites", customerNavTabs[2].testTag)
+        assertEquals("nav_customer_profile", customerNavTabs[3].testTag)
+
+        assertEquals(
+            listOf(
+                AppRoutes.ROUTE_BARBER_HOME,
+                AppRoutes.ROUTE_BARBER_SCHEDULE,
+                AppRoutes.ROUTE_BARBER_EARNINGS,
+                AppRoutes.ROUTE_BARBER_PROFILE
+            ),
+            barberNavTabs.map { it.route }
+        )
 
         val catalog = canonicalGroomingCatalog()
         assertTrue(catalog.size >= 15)
+        val haircut = catalog.firstOrNull { it.id == "svc_classic_cut" }
+        val beardTrim = catalog.firstOrNull { it.id == "svc_beard_trim" }
+        val combo = catalog.firstOrNull { it.id == "svc_pkg_essential" }
         val normalCut = catalog.firstOrNull { it.id == "svc_normal_head_cut" }
         val traditionalCut = catalog.firstOrNull { it.id == "svc_traditional_cut" }
+
+        assertNotNull(haircut)
+        assertNotNull(beardTrim)
+        assertNotNull(combo)
         assertNotNull(normalCut)
         assertNotNull(traditionalCut)
-        assertEquals("Normal Head Cut", normalCut!!.name)
-        assertEquals(19900L, normalCut.pricePaise)
-        assertTrue(traditionalCut!!.name.contains("Traditional Haircut"))
-        assertEquals(22900L, traditionalCut.pricePaise)
+
+        assertEquals(30000L, haircut!!.pricePaise)
+        assertEquals(15000L, beardTrim!!.pricePaise)
+        assertEquals(40000L, combo!!.pricePaise)
 
         val allPerms = PhonePermissionsHelper.allFeaturePermissionsArray().toList()
         assertTrue(allPerms.contains(android.Manifest.permission.ACCESS_FINE_LOCATION))
@@ -169,33 +197,37 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `compose navigation sets service selection as landing page with normal and traditional haircuts and routes to door setup`() {
+    fun `customer home screen adds services to sticky liquid glass bar and routes to door setup`() {
         val detected = DetectedDoorLocation(
             doorHint = "",
-            streetArea = "12th Main Road, Indiranagar",
-            localityName = "Indiranagar",
-            landmark = "Near 12th Main Park",
-            postalCode = "560038",
-            latitude = 12.97189,
-            longitude = 77.64115,
+            streetArea = "Road No 12, Banjara Hills",
+            localityName = "Hyderabad",
+            landmark = "Near City Center",
+            postalCode = "500034",
+            latitude = 17.41560,
+            longitude = 78.43470,
             accuracyMeters = 7.0f
         )
 
-        var selectedIds = setOf<String>()
+        var selectedIds by mutableStateOf(setOf<String>())
+        val catalog = canonicalGroomingCatalog()
 
         composeTestRule.setContent {
             DoorCutTheme {
                 val navController = rememberNavController()
                 NavHost(
                     navController = navController,
-                    startDestination = AppRoutes.ROUTE_SERVICE_SELECTION
+                    startDestination = AppRoutes.ROUTE_CUSTOMER_HOME
                 ) {
-                    composable(AppRoutes.ROUTE_SERVICE_SELECTION) {
-                        ServiceSelectionLandingScreen(
-                            detectedLocation = detected,
-                            isFetchingLocation = false,
-                            pendingDoorDraft = null,
+                    composable(AppRoutes.ROUTE_CUSTOMER_HOME) {
+                        CustomerHomeScreen(
+                            services = catalog,
                             selectedServiceIds = selectedIds,
+                            upcomingBooking = null,
+                            savedAddresses = emptyList(),
+                            detectedLocation = detected,
+                            pendingDoorDraft = null,
+                            isFetchingLocation = false,
                             onToggleService = { id ->
                                 selectedIds = if (selectedIds.contains(id)) {
                                     selectedIds - id
@@ -203,10 +235,10 @@ class ExampleRobolectricTest {
                                     selectedIds + id
                                 }
                             },
-                            onOpenDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
+                            onStartBookingFlow = {},
+                            onOpenLocationSelector = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
                             onRefreshGps = {},
-                            onProceedToSignIn = {},
-                            onAuthSuccess = {}
+                            onOpenBookingStatus = {}
                         )
                     }
                     composable(AppRoutes.ROUTE_DOOR_SETUP) {
@@ -225,13 +257,19 @@ class ExampleRobolectricTest {
 
         composeTestRule.waitForIdle()
 
-        // Verify Service Selection is the immediate landing page with Normal Head Cut & Traditional Haircut
-        composeTestRule.onNodeWithTag("service_selection_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("service_selection_grid").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("service_card_svc_normal_head_cut").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("service_card_svc_traditional_cut").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("customer_home_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_book_barber_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("service_selection_screen")
+            .performScrollToNode(hasTestTag("add_service_button_svc_classic_cut"))
+        composeTestRule.onNodeWithTag("add_service_button_svc_classic_cut").performClick()
+        composeTestRule.waitForIdle()
 
-        // Navigate to Door Setup via Compose Navigation when tapping the top GPS/Door capsule
+        // Verify sticky Liquid Glass summary bar appears with rolling price summary
+        composeTestRule.onNodeWithTag("sticky_continue_booking_bar").assertIsDisplayed()
+
+        // Scroll back to top and tap location selector to open Door Setup
+        composeTestRule.onNodeWithTag("service_selection_screen")
+            .performScrollToNode(hasTestTag("home_address_selector"))
         composeTestRule.onNodeWithTag("home_address_selector").performClick()
         composeTestRule.waitForIdle()
 
@@ -240,68 +278,195 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `cart and account screens display selected haircuts, card payment options, previous bookings, and phone permissions`() {
+    fun `booking payment step clearly separates pay now confirmation fee from direct barber payment`() {
+        val catalog = canonicalGroomingCatalog()
+        val chosenServices = catalog.filter { it.id in setOf("svc_classic_cut", "svc_beard_trim") }
+        val barber = BarberProfile(
+            id = "barber_arman_master",
+            barberId = "barber_arman_master",
+            name = "Arman Siddiqui",
+            approvalStatus = "APPROVED",
+            isOnline = true,
+            ratingAvg = 4.9
+        )
+
+        var confirmed = false
+
         composeTestRule.setContent {
             DoorCutTheme {
-                GuestCartScreen(
-                    detectedLocation = null,
+                BookingPaymentStep(
+                    isAuthenticated = true,
+                    customerName = "Rohan Sharma",
+                    customerPhone = "+919876543210",
+                    selectedServices = chosenServices,
+                    chosenBarber = barber,
+                    selectedDateKey = "2026-10-28",
+                    selectedStartHour = 10L,
+                    savedAddresses = listOf(
+                        CustomerAddress(
+                            id = "addr_1",
+                            label = "HOME",
+                            flatHouse = "Flat 302",
+                            streetArea = "Banjara Hills, Hyderabad",
+                            postalCode = "500034",
+                            isDefault = true
+                        )
+                    ),
+                    selectedAddressId = "addr_1",
                     pendingDoorDraft = null,
-                    selectedServiceIds = setOf("svc_normal_head_cut", "svc_traditional_cut"),
-                    onToggleService = {},
-                    onClearCart = {},
-                    onBrowseServices = {},
-                    onOpenDoorSetup = {},
-                    onAuthSuccess = {}
+                    serviceAreas = emptyList(),
+                    platformConfig = PlatformConfig(fixedBookingFeePaise = 3000L),
+                    bookingFeePaise = 3000L,
+                    optionalInstructions = "Call when downstairs",
+                    isBusy = false,
+                    onEditStep = {},
+                    onConfirmBooking = { _, _ -> confirmed = true }
                 )
             }
         }
+
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("customer_cart_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("customer_cart_screen")
-            .performScrollToNode(hasTestTag("cart_item_svc_normal_head_cut"))
-        composeTestRule.onNodeWithTag("cart_item_svc_normal_head_cut").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("booking_payment_breakdown_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("pay_now_amount_text").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("pay_barber_after_text").assertIsDisplayed()
+        composeTestRule.onNodeWithText(
+            "Pay ₹450 directly to your barber after the service by cash or UPI."
+        ).assertIsDisplayed()
 
-        composeTestRule.onNodeWithTag("customer_cart_screen")
-            .performScrollToNode(hasTestTag("cart_payment_options_card"))
-        composeTestRule.onNodeWithTag("cart_payment_options_card").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("payment_option_card_pos_at_door").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("step_booking_payment")
+            .performScrollToNode(hasTestTag("pay_confirm_booking_button"))
+        composeTestRule.onNodeWithTag("pay_confirm_booking_button").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(confirmed)
     }
 
     @Test
-    fun `account hub displays previous bookings section, features grid, permissions manager, and card preferences`() {
+    fun `liquid glass navigation dock and bookings tabs switch smoothly and barber dashboard renders`() {
+        var activeRoute by mutableStateOf(AppRoutes.ROUTE_CUSTOMER_HOME)
+
         composeTestRule.setContent {
             DoorCutTheme {
-                GuestAccountHubScreen(
-                    detectedLocation = null,
-                    pendingDoorDraft = null,
-                    selectedServiceCount = 2,
-                    onNavigateToServices = {},
-                    onNavigateToCart = {},
-                    onNavigateToDoorSetup = {},
-                    onRefreshGps = {},
-                    onAuthSuccess = {}
+                LiquidGlassNavigationDock(
+                    navTabs = customerNavTabs,
+                    currentRoute = activeRoute,
+                    onSelectTab = { activeRoute = it }
                 )
             }
         }
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("customer_account_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("customer_account_screen")
-            .performScrollToNode(hasTestTag("account_previous_bookings_section"))
-        composeTestRule.onNodeWithTag("account_previous_bookings_section").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nav_customer_bookings").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(AppRoutes.ROUTE_BOOKINGS, activeRoute)
 
-        composeTestRule.onNodeWithTag("customer_account_screen")
-            .performScrollToNode(hasTestTag("account_features_grid"))
-        composeTestRule.onNodeWithTag("account_features_grid").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nav_customer_favourites").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(AppRoutes.ROUTE_FAVOURITES, activeRoute)
+    }
 
-        composeTestRule.onNodeWithTag("customer_account_screen")
-            .performScrollToNode(hasTestTag("account_permissions_section"))
-        composeTestRule.onNodeWithTag("account_permissions_section").assertIsDisplayed()
+    @Test
+    fun `customer bookings tabs and barber dashboard request actions work with liquid glass cards`() {
+        val sampleBooking = Booking(
+            id = "bk_test_1",
+            bookingNumber = "DC-1024",
+            customerId = "cust_1",
+            customerName = "Karan Verma",
+            barberId = "barber_1",
+            barberName = "Arman Siddiqui",
+            serviceNamesSummary = "Haircut + Beard Trim",
+            durationMinutes = 45L,
+            serviceSubtotalPaise = 45000L,
+            barberServicePayablePaise = 45000L,
+            platformBookingFeePaise = 3000L,
+            dateKey = "2099-12-30",
+            startHour = 11L,
+            status = "AWAITING_BARBER",
+            areaName = "Jubilee Hills"
+        )
 
-        composeTestRule.onNodeWithTag("customer_account_screen")
-            .performScrollToNode(hasTestTag("account_payment_card_section"))
-        composeTestRule.onNodeWithTag("account_payment_card_section").assertIsDisplayed()
+        var acceptedId: String? = null
+
+        composeTestRule.setContent {
+            DoorCutTheme {
+                BarberDashboardScreen(
+                    barberProfile = BarberProfile(
+                        id = "barber_1",
+                        barberId = "barber_1",
+                        name = "Arman Siddiqui",
+                        approvalStatus = "APPROVED",
+                        isOnline = true
+                    ),
+                    defaultDisplayName = "Arman Siddiqui",
+                    bookings = listOf(sampleBooking),
+                    catalogServices = canonicalGroomingCatalog(),
+                    serviceAreas = emptyList(),
+                    isBusy = false,
+                    onToggleOnline = {},
+                    onAcceptOrDeclineRequest = { b, accept, _ ->
+                        if (accept) acceptedId = b.id
+                    },
+                    onAdvanceTripStatus = { _, _ -> },
+                    onOpenBookingDetail = {},
+                    onApplyAsBarber = { _, _, _, _, _, _, _, _ -> }
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("barber_dashboard_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("barber_online_switch").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("barber_dashboard_screen")
+            .performScrollToNode(hasTestTag("accept_request_button_bk_test_1"))
+        composeTestRule.onNodeWithTag("accept_request_button_bk_test_1").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("bk_test_1", acceptedId)
+    }
+
+    @Test
+    fun `customer bookings screen displays upcoming completed and cancelled liquid glass tabs`() {
+        val completedBooking = Booking(
+            id = "bk_done_9",
+            bookingNumber = "DC-1009",
+            customerId = "cust_1",
+            customerName = "Karan Verma",
+            barberId = "barber_1",
+            barberName = "Arman Siddiqui",
+            serviceNamesSummary = "Haircut",
+            durationMinutes = 30L,
+            serviceSubtotalPaise = 30000L,
+            barberServicePayablePaise = 30000L,
+            dateKey = "2026-10-10",
+            startHour = 14L,
+            status = "COMPLETED"
+        )
+
+        var repeatedBookingId: String? = null
+
+        composeTestRule.setContent {
+            DoorCutTheme {
+                CustomerBookingsScreen(
+                    customerName = "Karan Verma",
+                    bookings = listOf(completedBooking),
+                    isBusy = false,
+                    onOpenBookingStatus = {},
+                    onBookAgain = { repeatedBookingId = it.id },
+                    onSubmitReview = { _, _, _ -> },
+                    onStartNewBooking = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("bookings_tab_completed").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("booking_card_bk_done_9").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("book_again_button_bk_done_9").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("bk_done_9", repeatedBookingId)
     }
 }
-

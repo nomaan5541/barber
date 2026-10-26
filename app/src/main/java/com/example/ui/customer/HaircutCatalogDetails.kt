@@ -87,208 +87,196 @@ data class ServiceCraftDetails(
  */
 fun canonicalGroomingCatalog(): List<CatalogService> = listOf(
     CatalogService(
+        id = "svc_classic_cut",
+        name = "Haircut",
+        category = "HAIRCUTS",
+        description = "Clean scissor & clipper haircut tailored to your style at home, including protective cape, floor sheet, and neat neckline finish.",
+        pricePaise = 30000L,
+        durationMinutes = 30L,
+        isActive = true,
+        isPackage = false,
+        instructions = "Keep any comfortable chair ready near good lighting.",
+        sortOrder = 1L
+    ),
+    CatalogService(
+        id = "svc_beard_trim",
+        name = "Beard Trim",
+        category = "BEARD_MOUSTACHE",
+        description = "Even beard trim, sharp cheek & jawline line-up with a fresh single-use blade, and soothing aftershave splash.",
+        pricePaise = 15000L,
+        durationMinutes = 15L,
+        isActive = true,
+        isPackage = false,
+        instructions = "Fresh disposable blade unsealed in front of you.",
+        sortOrder = 2L
+    ),
+    CatalogService(
+        id = "svc_pkg_essential",
+        name = "Haircut + Beard",
+        category = "PACKAGES",
+        description = "Our most popular doorstep combo: full Haircut + crisp Beard Trim & razor line-up in one smooth 45-minute visit.",
+        pricePaise = 40000L,
+        durationMinutes = 45L,
+        isActive = true,
+        isPackage = true,
+        instructions = "Save ₹50 compared to booking separately.",
+        sortOrder = 3L
+    ),
+    CatalogService(
         id = "svc_normal_head_cut",
         name = "Normal Head Cut",
         category = "HAIRCUTS",
-        description = "Clean, balanced everyday head cut using sanitized clippers & scissors. Even side grading, neat top trim, natural sideburns, and crisp neck outline.",
+        description = "Clean, balanced everyday head cut using sanitized clippers & scissors. Even side grading, neat top trim, and crisp neck outline.",
         pricePaise = 19900L,
         durationMinutes = 25L,
         isActive = true,
         isPackage = false,
-        instructions = "Keep any comfortable straight-back chair ready near good lighting.",
-        sortOrder = 1L
+        instructions = "Keep any straight-back chair ready near good lighting.",
+        sortOrder = 4L
     ),
     CatalogService(
         id = "svc_traditional_cut",
         name = "Traditional Haircut (Side-Part / Fauji)",
         category = "HAIRCUTS",
-        description = "Classic Indian barbershop scissor-over-comb haircut with neat side-part, tapered ear contour, disposable straight-razor neck finish & water/oil set.",
+        description = "Classic Indian barbershop scissor-over-comb haircut with neat side-part, tapered ear contour, and fresh blade neck finish.",
         pricePaise = 22900L,
         durationMinutes = 30L,
         isActive = true,
         isPackage = false,
-        instructions = "Keep a sturdy chair and hand towel accessible for classic comb finish.",
-        sortOrder = 2L
-    ),
-    CatalogService(
-        id = "svc_classic_cut",
-        name = "Classic Scissor & Clipper Haircut",
-        category = "HAIRCUTS",
-        description = "Tailored executive scissor layering & clipper blend customized to your crown and face shape, with clean neckline taper and cape setup.",
-        pricePaise = 30000L,
-        durationMinutes = 30L,
-        isActive = true,
-        isPackage = false,
-        instructions = "Keep a chair and power socket nearby if blow-dry finish is desired.",
-        sortOrder = 3L
+        instructions = "Keep a sturdy chair and hand towel accessible.",
+        sortOrder = 5L
     ),
     CatalogService(
         id = "svc_skin_fade",
         name = "Zero / Mid / High Skin Fade",
         category = "HAIRCUTS",
-        description = "Seamless foil-shaver & precision guard gradient fade (low, mid, high, or drop fade) with razor-sharp hairline detailing by fade specialists.",
+        description = "Seamless foil-shaver & precision guard gradient fade (low, mid, high, or drop fade) with sharp hairline detailing.",
         pricePaise = 35000L,
         durationMinutes = 40L,
         isActive = true,
         isPackage = false,
-        instructions = "Cordless clippers & foil shaver brought fully charged by your specialist.",
-        sortOrder = 4L
+        instructions = "Cordless clippers & foil shaver brought fully charged.",
+        sortOrder = 6L
     ),
     CatalogService(
         id = "svc_crew_buzz_cut",
-        name = "Crew Cut / Uniform Buzz Cut",
+        name = "Crew Cut / Buzz Cut",
         category = "HAIRCUTS",
-        description = "Low-maintenance military crew or single-guard buzz cut with clean temple taper, crisp forehead line-up, and quick post-cut brush-off.",
+        description = "Low-maintenance crew or single-guard buzz cut with clean temple taper and quick post-cut brush-off.",
         pricePaise = 17900L,
         durationMinutes = 20L,
         isActive = true,
         isPackage = false,
         instructions = "Quick 20-minute mess-free cut over disposable floor sheet.",
-        sortOrder = 5L
+        sortOrder = 7L
     ),
     CatalogService(
         id = "svc_kids_cut",
         name = "Kids' Gentle Home Haircut",
         category = "HAIRCUTS",
-        description = "Calm, patient, low-noise clipper & rounded-tip scissor haircut at home for children under 12—zero salon tears or waiting.",
+        description = "Calm, patient, low-noise clipper & rounded-tip scissor haircut at home for children under 12.",
         pricePaise = 25000L,
         durationMinutes = 30L,
         isActive = true,
         isPackage = false,
         instructions = "Parent or guardian should remain nearby during the haircut.",
-        sortOrder = 6L
+        sortOrder = 8L
     ),
     CatalogService(
         id = "svc_senior_cut",
         name = "Senior Comfort Traditional Cut",
         category = "HAIRCUTS",
-        description = "Unhurried, respectful traditional scissor haircut right on your elder's favourite home chair with zero travel strain.",
+        description = "Unhurried, respectful traditional scissor haircut right on your elder's favourite home chair.",
         pricePaise = 25000L,
         durationMinutes = 30L,
         isActive = true,
         isPackage = false,
-        instructions = "Can be performed on an armchair or wheelchair at total comfort.",
-        sortOrder = 7L
-    ),
-    CatalogService(
-        id = "svc_beard_trim",
-        name = "Beard Sculpting & Razor Line-Up",
-        category = "BEARD_MOUSTACHE",
-        description = "Symmetrical beard length grading, sharp cheek & jawline razor detailing, moustache neatening, and soothing aftershave splash.",
-        pricePaise = 15000L,
-        durationMinutes = 20L,
-        isActive = true,
-        isPackage = false,
-        instructions = "Fresh single-use disposable razor blade unsealed in front of you.",
-        sortOrder = 8L
+        instructions = "Can be performed on an armchair or wheelchair.",
+        sortOrder = 9L
     ),
     CatalogService(
         id = "svc_traditional_shave",
         name = "Traditional Foam & Razor Shave",
         category = "BEARD_MOUSTACHE",
-        description = "Classic rich-lather brush shave using a fresh disposable straight blade, warm water prep, antiseptic alum block, and cooling lotion.",
+        description = "Classic rich-lather brush shave using a fresh disposable blade, warm water prep, and cooling lotion.",
         pricePaise = 12000L,
         durationMinutes = 15L,
         isActive = true,
         isPackage = false,
-        instructions = "Keep a small bowl of warm water available for lather prep.",
-        sortOrder = 9L
+        instructions = "Keep a small bowl of warm water available.",
+        sortOrder = 10L
     ),
     CatalogService(
         id = "svc_clean_shave",
-        name = "Hot Towel Luxury Clean Shave",
+        name = "Hot Towel Clean Shave",
         category = "BEARD_MOUSTACHE",
-        description = "Two-pass aromatic steam-towel shave with pre-shave softening oil, rich cream lather, and hydrating post-shave balm.",
+        description = "Two-pass aromatic warm-towel shave with pre-shave oil, rich cream lather, and hydrating post-shave balm.",
         pricePaise = 18000L,
         durationMinutes = 25L,
         isActive = true,
         isPackage = false,
-        instructions = "Warm water access helps prepare the hot steam towel.",
-        sortOrder = 10L
+        instructions = "Warm water access helps prepare the steam towel.",
+        sortOrder = 11L
     ),
     CatalogService(
         id = "svc_scalp_oil",
-        name = "Traditional Champi Head Massage",
+        name = "Head Massage (Champi)",
         category = "HAIR_CARE",
-        description = "20-minute stress-relieving Indian champi pressure-point scalp, forehead & shoulder massage with Navratna, coconut, or almond oil.",
+        description = "20-minute stress-relieving Indian champi scalp, forehead & shoulder massage with cooling or coconut oil.",
         pricePaise = 20000L,
         durationMinutes = 20L,
         isActive = true,
         isPackage = false,
-        instructions = "Barber brings sealed hair oils—or you may provide your preferred home oil.",
-        sortOrder = 11L
+        instructions = "Barber brings sealed hair oils—or use your preferred home oil.",
+        sortOrder = 12L
     ),
     CatalogService(
         id = "svc_hair_wash",
-        name = "Refreshing Hair Wash & Blow Dry",
+        name = "Hair Wash & Blow Dry",
         category = "HAIR_CARE",
-        description = "Deep cleansing shampoo rinse to clear loose hair clippings followed by a styled volume blow-dry finish.",
+        description = "Refreshing shampoo rinse to clear loose clippings followed by a styled blow-dry finish.",
         pricePaise = 10000L,
         durationMinutes = 15L,
         isActive = true,
         isPackage = false,
-        instructions = "Requires washbasin/shower rinse access and a standard wall socket.",
-        sortOrder = 12L
+        instructions = "Requires washbasin/shower rinse access and a wall socket.",
+        sortOrder = 13L
     ),
     CatalogService(
         id = "svc_face_cleanup",
-        name = "Charcoal Detan Face Cleanup",
+        name = "Detan Face Cleanup",
         category = "ADD_ONS",
-        description = "4-step tan-removal cleanser, blackhead exfoliating scrub, activated charcoal mask, and brightening moisture massage.",
+        description = "4-step tan-removal cleanser, exfoliating scrub, charcoal mask, and brightening massage.",
         pricePaise = 35000L,
         durationMinutes = 30L,
         isActive = true,
         isPackage = false,
-        instructions = "Single-use sealed skincare sachets used for complete hygiene.",
-        sortOrder = 13L
-    ),
-    CatalogService(
-        id = "svc_brow_neck",
-        name = "Eyebrow, Ear & Neck Detailing",
-        category = "ADD_ONS",
-        description = "Crisp precision trimming and razor cleanup around eyebrows, ears, and nape for a sharp finishing touch.",
-        pricePaise = 8000L,
-        durationMinutes = 10L,
-        isActive = true,
-        isPackage = false,
-        instructions = "Pairs great as a quick add-on with any haircut.",
+        instructions = "Single-use sealed skincare sachets used for hygiene.",
         sortOrder = 14L
     ),
     CatalogService(
         id = "svc_pkg_traditional_combo",
-        name = "Normal / Traditional Cut + Shave + Champi",
+        name = "Traditional Cut + Shave + Champi",
         category = "PACKAGES",
-        description = "Complete traditional home value combo: Normal or Traditional Haircut + Classic Shave/Beard Trim + 15-min Oil Champi Massage.",
+        description = "Complete traditional home combo: Traditional Haircut + Shave/Beard Trim + 15-min Oil Head Massage.",
         pricePaise = 42900L,
         durationMinutes = 55L,
         isActive = true,
         isPackage = true,
-        instructions = "Save ₹90 compared to individual items • ₹0 platform fee.",
+        instructions = "Save ₹90 compared to individual services.",
         sortOrder = 15L
     ),
     CatalogService(
-        id = "svc_pkg_essential",
-        name = "Haircut + Beard + Hair Wash Combo",
-        category = "PACKAGES",
-        description = "Signature at-home package: Precision Scissor/Clipper Haircut + Razor Beard Sculpt + Refreshing Wash & Blow-Dry.",
-        pricePaise = 55000L,
-        durationMinutes = 60L,
-        isActive = true,
-        isPackage = true,
-        instructions = "Bestseller 60-minute doorstep transformation.",
-        sortOrder = 16L
-    ),
-    CatalogService(
         id = "svc_pkg_complete",
-        name = "Executive Complete Grooming Package",
+        name = "Complete Grooming Package",
         category = "PACKAGES",
-        description = "Ultimate luxury ritual: Skin Fade or Executive Haircut + Hot Towel Shave/Beard + Charcoal Detan Facial + Champi Massage.",
-        pricePaise = 89900L,
-        durationMinutes = 90L,
+        description = "Haircut + Beard Trim/Shave + Detan Face Cleanup + Relaxing Head Massage.",
+        pricePaise = 79900L,
+        durationMinutes = 80L,
         isActive = true,
         isPackage = true,
-        instructions = "90-minute head-to-toe salon experience at home.",
-        sortOrder = 17L
+        instructions = "Full head-to-toe refresh at home.",
+        sortOrder = 16L
     )
 )
 
@@ -378,9 +366,9 @@ fun craftDetailsFor(service: CatalogService): ServiceCraftDetails {
                 "Clean home station setup with protective cape & floor sheet",
                 "Tools sanitized with hospital-grade spray before starting",
                 service.description,
-                "Post-service cleanup & direct pay to barber (₹0 platform fee)"
+                "Post-service cleanup & pay service charge directly to barber"
             ),
-            toolsAndHygiene = listOf("Sanitized Kit", "Single-Use Disposables", "₹0 Platform Fee", "Pay Card/UPI/Cash at Door")
+            toolsAndHygiene = listOf("Sanitized Kit", "Single-Use Blade", "Pay Barber After Cut", "Cash or UPI")
         )
     }
 }
@@ -535,7 +523,7 @@ fun ServiceDetailBottomSheet(
                         )
                     }
                 }
-                StatusBadge("₹0 PLATFORM FEE")
+                StatusBadge("PAY BARBER AFTER CUT")
             }
 
             // Full Description
@@ -650,31 +638,15 @@ fun ServiceDetailBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Barber Service Charge", style = MaterialTheme.typography.bodySmall)
+                        Text("Pay directly to barber after service", style = MaterialTheme.typography.bodySmall)
                         Text(
                             CurrencyUtils.formatRupees(service.pricePaise),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            "Customer Platform / App Fee",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = SageVerified
-                        )
-                        Text(
-                            "₹0 FREE",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = SageVerified
-                        )
-                    }
                     Text(
-                        text = "Pay directly at your door via Credit/Debit Card POS, UPI QR, or Cash after completion.",
+                        text = "Paid directly to your barber after completion by Cash or UPI. A small booking confirmation fee is paid at checkout to reserve your time slot.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -712,9 +684,9 @@ fun ServiceDetailBottomSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (isSelected) {
-                            "In Cart • Remove"
+                            "Added • Remove"
                         } else {
-                            "Add to Cart • ${CurrencyUtils.formatRupees(service.pricePaise)}"
+                            "Add • ${CurrencyUtils.formatRupees(service.pricePaise)}"
                         },
                         fontWeight = FontWeight.Bold
                     )
@@ -729,7 +701,7 @@ fun ServiceDetailBottomSheet(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.height(52.dp)
                     ) {
-                        Text("View Cart", fontWeight = FontWeight.Bold)
+                        Text("Continue", fontWeight = FontWeight.Bold)
                     }
                 }
             }

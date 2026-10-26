@@ -8,24 +8,22 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Gavel
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Policy
-import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ContentCut
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Gavel
-import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Policy
-import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.Verified
-import androidx.compose.material.icons.outlined.WorkOutline
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -33,28 +31,43 @@ import com.example.R
 
 /**
  * Canonical Jetpack Compose Navigation route IDs for DoorCut.
- * [ROUTE_SERVICE_SELECTION] is the unconditional startDestination (landing page).
+ * Customer Mode uses strictly 4 bottom tabs: Home, Bookings, Favourites, Profile.
+ * Barber Mode uses strictly 4 bottom tabs: Home, Schedule, Earnings, Profile.
  */
 object AppRoutes {
-    const val ROUTE_SERVICE_SELECTION = "service_selection"
-    const val ROUTE_DOOR_SETUP = "door_setup"
+    // Customer 4 Bottom Tabs
+    const val ROUTE_CUSTOMER_HOME = "customer_home"
+    const val ROUTE_SERVICE_SELECTION = ROUTE_CUSTOMER_HOME // Alias kept for startDestination clarity
     const val ROUTE_BOOKINGS = "bookings"
-    const val ROUTE_CART = "cart"
-    const val ROUTE_ADDRESSES = "addresses"
+    const val ROUTE_FAVOURITES = "favourites"
     const val ROUTE_PROFILE = "profile"
+
+    // Customer Guided Flow & Detail Sub-Routes (No extra bottom nav items)
+    const val ROUTE_BOOKING_FLOW = "booking_flow"
+    const val ROUTE_BOOKING_STATUS = "booking_status/{bookingId}"
+    const val ROUTE_DOOR_SETUP = "door_setup"
+    const val ROUTE_ADDRESSES = "addresses"
     const val ROUTE_AUTH = "auth"
 
-    // Barber Studio Portal Routes
-    const val ROUTE_BARBER_JOBS = "barber_jobs"
+    // Barber 4 Bottom Tabs
+    const val ROUTE_BARBER_HOME = "barber_home"
+    const val ROUTE_BARBER_JOBS = ROUTE_BARBER_HOME
     const val ROUTE_BARBER_SCHEDULE = "barber_schedule"
     const val ROUTE_BARBER_EARNINGS = "barber_earnings"
+    const val ROUTE_BARBER_PROFILE = "barber_profile"
 
-    // Admin Operations Portal Routes
+    // Barber Detail Sub-Route
+    const val ROUTE_BARBER_JOB_DETAIL = "barber_job/{bookingId}"
+
+    // Admin Dashboard Routes
     const val ROUTE_ADMIN_OVERVIEW = "admin_overview"
     const val ROUTE_ADMIN_BARBERS = "admin_barbers"
     const val ROUTE_ADMIN_CATALOG = "admin_catalog"
     const val ROUTE_ADMIN_BOOKINGS = "admin_bookings"
     const val ROUTE_ADMIN_POLICIES = "admin_policies"
+
+    fun bookingStatusRoute(bookingId: String): String = "booking_status/$bookingId"
+    fun barberJobDetailRoute(bookingId: String): String = "barber_job/$bookingId"
 }
 
 data class NavTabSpec(
@@ -65,13 +78,16 @@ data class NavTabSpec(
     val testTag: String
 )
 
+/**
+ * Strictly 4 Customer Bottom Navigation items: Home, Bookings, Favourites, Profile.
+ */
 val customerNavTabs: List<NavTabSpec> = listOf(
     NavTabSpec(
-        route = AppRoutes.ROUTE_SERVICE_SELECTION,
-        labelRes = R.string.nav_discover,
-        selectedIcon = Icons.Filled.ContentCut,
-        unselectedIcon = Icons.Outlined.ContentCut,
-        testTag = "nav_customer_discover"
+        route = AppRoutes.ROUTE_CUSTOMER_HOME,
+        labelRes = R.string.nav_home,
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home,
+        testTag = "nav_customer_home"
     ),
     NavTabSpec(
         route = AppRoutes.ROUTE_BOOKINGS,
@@ -81,18 +97,11 @@ val customerNavTabs: List<NavTabSpec> = listOf(
         testTag = "nav_customer_bookings"
     ),
     NavTabSpec(
-        route = AppRoutes.ROUTE_CART,
-        labelRes = R.string.nav_cart,
-        selectedIcon = Icons.Filled.ShoppingBag,
-        unselectedIcon = Icons.Outlined.ShoppingBag,
-        testTag = "nav_customer_cart"
-    ),
-    NavTabSpec(
-        route = AppRoutes.ROUTE_ADDRESSES,
-        labelRes = R.string.nav_addresses,
-        selectedIcon = Icons.Filled.LocationOn,
-        unselectedIcon = Icons.Outlined.LocationOn,
-        testTag = "nav_customer_addresses"
+        route = AppRoutes.ROUTE_FAVOURITES,
+        labelRes = R.string.nav_favourites,
+        selectedIcon = Icons.Filled.Favorite,
+        unselectedIcon = Icons.Outlined.FavoriteBorder,
+        testTag = "nav_customer_favourites"
     ),
     NavTabSpec(
         route = AppRoutes.ROUTE_PROFILE,
@@ -103,13 +112,16 @@ val customerNavTabs: List<NavTabSpec> = listOf(
     )
 )
 
+/**
+ * Strictly 4 Barber Bottom Navigation items: Home, Schedule, Earnings, Profile.
+ */
 val barberNavTabs: List<NavTabSpec> = listOf(
     NavTabSpec(
-        route = AppRoutes.ROUTE_BARBER_JOBS,
-        labelRes = R.string.nav_barber_jobs,
-        selectedIcon = Icons.Filled.Work,
-        unselectedIcon = Icons.Outlined.WorkOutline,
-        testTag = "nav_barber_jobs"
+        route = AppRoutes.ROUTE_BARBER_HOME,
+        labelRes = R.string.nav_barber_home,
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home,
+        testTag = "nav_barber_home"
     ),
     NavTabSpec(
         route = AppRoutes.ROUTE_BARBER_SCHEDULE,
@@ -126,8 +138,8 @@ val barberNavTabs: List<NavTabSpec> = listOf(
         testTag = "nav_barber_earnings"
     ),
     NavTabSpec(
-        route = AppRoutes.ROUTE_PROFILE,
-        labelRes = R.string.nav_profile,
+        route = AppRoutes.ROUTE_BARBER_PROFILE,
+        labelRes = R.string.nav_barber_profile,
         selectedIcon = Icons.Filled.Person,
         unselectedIcon = Icons.Outlined.Person,
         testTag = "nav_barber_profile"

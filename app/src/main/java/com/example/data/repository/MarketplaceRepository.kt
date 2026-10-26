@@ -351,6 +351,24 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
             }
     }
 
+    suspend fun setBarberOnlineStatus(isOnline: Boolean) {
+        val uid = requireUserId()
+        val docRef = db.collection("barberProfiles").document(uid)
+        try {
+            docRef.update(
+                mapOf(
+                    "isOnline" to isOnline,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
+            throw e
+        }
+    }
+
     suspend fun updateBarberScheduleAndAvailability(
         isOnline: Boolean,
         workStartHour: Long,
@@ -362,7 +380,8 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         shopName: String,
         shopAddress: String,
         skills: List<String>,
-        serviceIds: List<String>
+        serviceIds: List<String>,
+        workingDays: List<String> = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
     ) {
         val uid = requireUserId()
         val docRef = db.collection("barberProfiles").document(uid)
@@ -380,6 +399,7 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
                     "shopAddress" to shopAddress.trim().take(240),
                     "skills" to skills.map { it.trim().take(40) }.filter { it.isNotBlank() }.take(15),
                     "serviceIds" to serviceIds.take(50),
+                    "workingDays" to workingDays.take(7),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -420,7 +440,9 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         dateKey: String,
         startHour: Long,
         customerNotes: String,
-        policySnapshot: String
+        policySnapshot: String,
+        platformBookingFeePaise: Long = 0L,
+        bookingFeeTxRef: String = ""
     ): String {
         val uid = requireUserId()
         require(selectedServices.isNotEmpty()) { "Select at least one service." }
@@ -431,6 +453,12 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         val serviceSubtotalPaise = selectedServices.sumOf { it.pricePaise }
         val totalDurationMin = selectedServices.sumOf { it.durationMinutes }
         val barberPayablePaise = serviceSubtotalPaise + travelChargePaise
+        val safeBookingFeePaise = platformBookingFeePaise.coerceAtLeast(0L)
+        val totalCustomerCostPaise = barberPayablePaise + safeBookingFeePaise
+        val feeStatus = if (safeBookingFeePaise > 0L) "PAID_VERIFIED" else "ZERO_CUSTOMER_FEE"
+        val resolvedTxRef = bookingFeeTxRef.ifBlank {
+            if (safeBookingFeePaise > 0L) "FEE-${bookingNumber.takeLast(4)}" else "FREE-SLOT-${bookingNumber.takeLast(4)}"
+        }
         val safeCommissionPaise = barberCommissionPaise.coerceIn(0L, barberPayablePaise)
         val barberNetPaise = (barberPayablePaise - safeCommissionPaise).coerceAtLeast(0L)
         val summary = selectedServices.joinToString(", ") { "${it.name} (${CurrencyUtils.formatRupees(it.pricePaise)})" }
@@ -484,10 +512,10 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
                         "approvedAddOnPaise" to 0L,
                         "travelChargePaise" to travelChargePaise,
                         "barberServicePayablePaise" to barberPayablePaise,
-                        "platformBookingFeePaise" to 0L, // ₹0 Customer Platform Fee
-                        "totalCustomerCostPaise" to barberPayablePaise,
-                        "bookingFeeStatus" to "ZERO_CUSTOMER_FEE",
-                        "bookingFeeTxRef" to "FREE-SLOT-${bookingNumber.takeLast(4)}",
+                        "platformBookingFeePaise" to safeBookingFeePaise,
+                        "totalCustomerCostPaise" to totalCustomerCostPaise,
+                        "bookingFeeStatus" to feeStatus,
+                        "bookingFeeTxRef" to resolvedTxRef.take(120),
                         "barberCommissionPaise" to safeCommissionPaise,
                         "barberNetEarningsPaise" to barberNetPaise,
                         "barberCommissionStatus" to "PENDING_SETTLEMENT",
@@ -719,6 +747,10 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         }
     }
 
+    /**
+     * Records direct customer-to-barber payment SEPARATELY from service completion so that
+     * a payment dispute or unconfirmed UPI transfer never corrupts the COMPLETED booking history.
+     */
     suspend fun barberRecordDirectPayment(
         bookingId: String,
         declaredStatus: String,
@@ -729,18 +761,13 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         requireUserId()
         val bookingRef = db.collection("bookings").document(bookingId)
         try {
-            val updates = mutableMapOf<String, Any>(
+            val updates = mapOf<String, Any>(
                 "directPaymentStatus" to declaredStatus,
                 "directPaymentMethod" to method,
                 "directPaymentDeclaredPaise" to amountReceivedPaise.coerceAtLeast(0L),
                 "directPaymentRef" to referenceNote.trim().take(120),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            if (declaredStatus == "DISPUTED") {
-                updates["status"] = "DISPUTED"
-            } else {
-                updates["status"] = "COMPLETED"
-            }
             bookingRef.update(updates).await()
         } catch (e: CancellationException) {
             throw e
@@ -1043,8 +1070,10 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
 
     suspend fun adminUpdatePlatformConfig(
         bookingFeeType: String,
-        barberCommissionBps: Long,
-        barberFlatFeePaise: Long,
+        fixedBookingFeePaise: Long = 3000L,
+        percentageBookingFeeBps: Long = 0L,
+        barberCommissionBps: Long = 0L,
+        barberFlatFeePaise: Long = 0L,
         freeCancellationCutoffHours: Long,
         slotHoldMinutes: Long,
         policyText: String,
@@ -1056,8 +1085,8 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
             docRef.set(
                 mapOf(
                     "bookingFeeType" to bookingFeeType,
-                    "fixedBookingFeePaise" to 0L, // Customer platform fee permanently ₹0
-                    "percentageBookingFeeBps" to 0L,
+                    "fixedBookingFeePaise" to fixedBookingFeePaise.coerceIn(0L, 500000L),
+                    "percentageBookingFeeBps" to percentageBookingFeeBps.coerceIn(0L, 5000L),
                     "barberCommissionBps" to barberCommissionBps.coerceIn(0L, 5000L),
                     "barberFlatFeePaise" to barberFlatFeePaise.coerceIn(0L, 500000L),
                     "freeCancellationCutoffHours" to freeCancellationCutoffHours.coerceIn(0L, 72L),
@@ -1068,7 +1097,7 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
-            recordAudit("UPDATE_BARBER_COMMISSION_POLICY", "PlatformConfig", "global", "Updated barber commission policy ($bookingFeeType)")
+            recordAudit("UPDATE_PLATFORM_POLICY", "PlatformConfig", "global", "Updated booking confirmation fee (${CurrencyUtils.formatRupees(fixedBookingFeePaise)}) & cancellation policy")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1238,18 +1267,18 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
     )
 
     private fun canonicalCatalogSpecs(): List<SeedSvc> = listOf(
-        SeedSvc("svc_classic_cut", "Classic Scissor & Clipper Haircut", "HAIRCUTS", "Tailored scissor & clipper haircut with neckline taper and clean home cape setup.", 30000L, 30L, false),
-        SeedSvc("svc_skin_fade", "Zero / Mid / High Skin Fade", "HAIRCUTS", "Seamless razor-sharp skin fade with crisp hairline detailing by fade specialists.", 35000L, 40L, false),
-        SeedSvc("svc_kids_cut", "Kids' Gentle Home Haircut", "HAIRCUTS", "Patient, mess-free haircut at home for children under 12.", 25000L, 30L, false),
-        SeedSvc("svc_senior_cut", "Senior Comfort Haircut", "HAIRCUTS", "Relaxed, comfortable at-home haircut designed for seniors.", 25000L, 30L, false),
-        SeedSvc("svc_beard_trim", "Beard Sculpting & Razor Line-Up", "BEARD_MOUSTACHE", "Symmetrical beard shaping, sharp cheek line-up, and neckline finish.", 15000L, 20L, false),
-        SeedSvc("svc_clean_shave", "Hot Towel Luxury Clean Shave", "BEARD_MOUSTACHE", "Rich lather straight-razor shave with soothing post-shave balm.", 18000L, 25L, false),
-        SeedSvc("svc_hair_wash", "Refreshing Hair Wash & Blow Dry", "HAIR_CARE", "Deep cleansing shampoo rinse and salon-styled blow dry finish.", 10000L, 15L, false),
-        SeedSvc("svc_scalp_oil", "Ayurvedic Head & Scalp Massage", "HAIR_CARE", "20-minute stress-relief warm oil massage for scalp rejuvenation.", 20000L, 20L, false),
-        SeedSvc("svc_face_cleanup", "Charcoal Detan Face Cleanup", "ADD_ONS", "Deep pore cleanse, exfoliating scrub, and hydrating charcoal mask.", 35000L, 30L, false),
-        SeedSvc("svc_brow_neck", "Eyebrow, Ear & Neck Detailing", "ADD_ONS", "Crisp finishing touches for an ultra-clean groomed appearance.", 8000L, 10L, false),
-        SeedSvc("svc_pkg_essential", "Haircut + Beard + Hair Wash Combo", "PACKAGES", "Signature at-home package: Precision Haircut, Beard Sculpt & Refreshing Wash.", 55000L, 60L, true),
-        SeedSvc("svc_pkg_complete", "Executive Complete Grooming Package", "PACKAGES", "Skin Fade Haircut + Razor Beard + Detan Facial Cleanup + Scalp Massage.", 89900L, 90L, true)
+        SeedSvc("svc_classic_cut", "Haircut", "HAIRCUTS", "Clean scissor & clipper haircut at home with protective cape and floor sheet.", 30000L, 30L, false),
+        SeedSvc("svc_beard_trim", "Beard Trim", "BEARD_MOUSTACHE", "Neat beard shaping, cheek razor line-up, and neckline finish.", 15000L, 15L, false),
+        SeedSvc("svc_pkg_essential", "Haircut + Beard", "PACKAGES", "Popular home combo: Precision Haircut + Beard Trim & Razor Line-Up.", 40000L, 45L, true),
+        SeedSvc("svc_skin_fade", "Skin Fade Haircut", "HAIRCUTS", "Zero, low, or mid skin fade with crisp hairline detailing.", 35000L, 40L, false),
+        SeedSvc("svc_kids_cut", "Kids Haircut", "HAIRCUTS", "Gentle, mess-free haircut at home for children under 12.", 25000L, 30L, false),
+        SeedSvc("svc_senior_cut", "Senior Comfort Haircut", "HAIRCUTS", "Comfortable, unhurried haircut at home for elders.", 25000L, 30L, false),
+        SeedSvc("svc_clean_shave", "Hot Towel Clean Shave", "BEARD_MOUSTACHE", "Rich foam shave with fresh disposable blade and soothing balm.", 18000L, 25L, false),
+        SeedSvc("svc_hair_wash", "Hair Wash & Blow Dry", "HAIR_CARE", "Refreshing shampoo rinse and styled blow-dry finish.", 10000L, 15L, false),
+        SeedSvc("svc_scalp_oil", "Head Oil Massage", "HAIR_CARE", "20-minute relaxing warm oil head and shoulder massage.", 20000L, 20L, false),
+        SeedSvc("svc_face_cleanup", "Detan Face Cleanup", "ADD_ONS", "Deep pore cleanse, scrub, and charcoal detan mask.", 35000L, 30L, false),
+        SeedSvc("svc_brow_neck", "Neck & Eyebrow Tidy", "ADD_ONS", "Quick eyebrow, ear, and neckline cleanup.", 8000L, 10L, false),
+        SeedSvc("svc_pkg_complete", "Complete Grooming Combo", "PACKAGES", "Haircut + Beard Trim + Detan Face Cleanup + Head Massage.", 79900L, 85L, true)
     )
 
     private fun fullMasterCatalogSpecs(): List<SeedSvc> = listOf(
@@ -1436,18 +1465,18 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         try {
             val batch = db.batch()
 
-            // 1. Platform Config (₹0 Customer Fee, 15% Commission from Barber)
+            // 1. Platform Config (₹30 Booking Confirmation Fee + Separate Direct Barber Payment)
             batch.set(
                 db.collection("platformConfig").document("global"),
                 mapOf(
-                    "bookingFeeType" to "BARBER_COMMISSION_PERCENT",
-                    "fixedBookingFeePaise" to 0L,
+                    "bookingFeeType" to "FIXED",
+                    "fixedBookingFeePaise" to 3000L,
                     "percentageBookingFeeBps" to 0L,
-                    "barberCommissionBps" to 1500L,
+                    "barberCommissionBps" to 0L,
                     "barberFlatFeePaise" to 0L,
                     "freeCancellationCutoffHours" to 2L,
                     "slotHoldMinutes" to 10L,
-                    "policyText" to "₹0 Platform Fee for Customers! Free cancellation up to 2 hours before appointment. Pay only the barber service price directly via UPI or Cash after completion.",
+                    "policyText" to "Free cancellation up to 2 hours before your appointment. Pay the ₹30 booking confirmation fee now to confirm your barber, and pay the service charge directly to your barber after completion by Cash or UPI.",
                     "maintenanceMode" to false,
                     "updatedBy" to uid,
                     "updatedAt" to FieldValue.serverTimestamp()

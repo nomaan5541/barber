@@ -96,9 +96,11 @@ fun AdminOverviewScreen(
     val activeBarbers = barbers.count { it.approvalStatus == "APPROVED" }
 
     val completedBookings = bookings.filter { it.status == "COMPLETED" }
-    val barberCommissionRevenuePaise = completedBookings.sumOf { it.effectiveBarberCommissionPaise() }
-    val barberNetTakeHomePaise = completedBookings.sumOf {
-        (it.directPaymentDeclaredPaise - it.effectiveBarberCommissionPaise()).coerceAtLeast(0L)
+    val platformBookingFeeRevenuePaise = bookings
+        .filter { it.bookingFeeStatus == "PAID_VERIFIED" && it.status !in setOf("CANCELLED", "EXPIRED") }
+        .sumOf { if (it.platformBookingFeePaise > 0L) it.platformBookingFeePaise else 3000L }
+    val barberDirectServiceTotalPaise = completedBookings.sumOf {
+        if (it.directPaymentDeclaredPaise > 0L) it.directPaymentDeclaredPaise else it.barberServicePayablePaise
     }
 
     val disputedBookingsCount = bookings.count { it.status == "DISPUTED" || it.directPaymentStatus == "DISPUTED" }
@@ -113,7 +115,7 @@ fun AdminOverviewScreen(
             SectionHeader(
                 eyebrow = "MARKETPLACE COMMAND CENTER",
                 title = "Admin Operations Dashboard",
-                subtitle = "₹0 Customer Fee Model • Platform Commission Charged from Partner Barbers"
+                subtitle = "Separate Two-Payment Ledger: Platform Booking Fees vs Direct Customer-to-Barber Payments"
             )
         }
 
@@ -139,14 +141,14 @@ fun AdminOverviewScreen(
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = BrassGold)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Sync Canonical Services & Partner Barber Shops",
+                            text = "Sync Canonical Services & Partner Barber Studios",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     }
                     Text(
-                        text = "Ensure all 12 visual grooming services, 3 PIN zones, ₹0 customer fee / 15% barber commission policy, and 4 partner barber studios with verified skills are active.",
+                        text = "Ensure Haircut (₹300), Beard Trim (₹150), Haircut + Beard (₹400), ₹30 booking confirmation fee policy, and verified home barbers are synced.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFD6C8B6)
                     )
@@ -164,7 +166,7 @@ fun AdminOverviewScreen(
                             .testTag("admin_bootstrap_button")
                     ) {
                         Text(
-                            text = if (services.isEmpty()) "Seed Catalog & Partner Barber Shops" else "Refresh Catalog, Skills & Barber Shops",
+                            text = if (services.isEmpty()) "Seed Catalog & Partner Barber Studios" else "Refresh Catalog, Fees & Barber Studios",
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -176,17 +178,17 @@ fun AdminOverviewScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 MetricBentoCard(
                     icon = Icons.Filled.Percent,
-                    title = "Platform Commission",
-                    value = CurrencyUtils.formatRupees(barberCommissionRevenuePaise),
-                    subtitle = "Earned from barbers (Cust. ₹0)",
+                    title = "Booking Fee Revenue",
+                    value = CurrencyUtils.formatRupees(platformBookingFeeRevenuePaise),
+                    subtitle = "Paid to platform at checkout",
                     accentHighlight = true,
                     modifier = Modifier.weight(1f)
                 )
                 MetricBentoCard(
                     icon = Icons.Filled.AccountBalanceWallet,
-                    title = "Barber Net Earnings",
-                    value = CurrencyUtils.formatRupees(barberNetTakeHomePaise),
-                    subtitle = "Retained by partner studios",
+                    title = "Direct Barber Pay",
+                    value = CurrencyUtils.formatRupees(barberDirectServiceTotalPaise),
+                    subtitle = "Paid directly to barbers",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -753,16 +755,15 @@ fun AdminPoliciesAndAuditScreen(
     auditLogs: List<AuditLog>,
     isBusy: Boolean
 ) {
-    var commissionMode by remember(platformConfig.bookingFeeType) {
-        mutableStateOf(
-            if (platformConfig.bookingFeeType == "BARBER_FLAT_FEE") "BARBER_FLAT_FEE" else "BARBER_COMMISSION_PERCENT"
-        )
+    var feeMode by remember(platformConfig.bookingFeeType) {
+        mutableStateOf(if (platformConfig.bookingFeeType == "PERCENTAGE") "PERCENTAGE" else "FIXED")
     }
-    var barberCommBps by remember(platformConfig.barberCommissionBps) {
-        mutableStateOf((if (platformConfig.barberCommissionBps > 0L) platformConfig.barberCommissionBps else 1500L).toString())
+    var fixedBookingFeeRupees by remember(platformConfig.fixedBookingFeePaise) {
+        val effPaise = platformConfig.effectiveCustomerBookingFeePaise()
+        mutableStateOf((effPaise / 100L).toString())
     }
-    var barberFlatFeeRupees by remember(platformConfig.barberFlatFeePaise) {
-        mutableStateOf((platformConfig.barberFlatFeePaise / 100L).toString())
+    var percentageFeeBps by remember(platformConfig.percentageBookingFeeBps) {
+        mutableStateOf(platformConfig.percentageBookingFeeBps.toString())
     }
     var cutoffHrs by remember(platformConfig.freeCancellationCutoffHours) {
         mutableStateOf(platformConfig.freeCancellationCutoffHours.toString())
@@ -780,9 +781,9 @@ fun AdminPoliciesAndAuditScreen(
     ) {
         item {
             SectionHeader(
-                eyebrow = "GOVERNANCE & REVENUE RULES",
-                title = "Commission & Audit Logs",
-                subtitle = "Customers always pay ₹0 platform fee. Configure partner barber commission & review immutable logs."
+                eyebrow = "GOVERNANCE & BOOKING FEE",
+                title = "Booking Fee & Audit Logs",
+                subtitle = "Configure the upfront Booking Confirmation Fee (default ₹30) and cancellation rules."
             )
         }
 
@@ -794,35 +795,35 @@ fun AdminPoliciesAndAuditScreen(
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Barber Commission Policy (Customer Fee = ₹0)",
+                        text = "Booking Confirmation Fee & Cancellation Policy",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
-                            selected = commissionMode == "BARBER_COMMISSION_PERCENT",
-                            onClick = { commissionMode = "BARBER_COMMISSION_PERCENT" },
-                            label = { Text("% Commission") }
+                            selected = feeMode == "FIXED",
+                            onClick = { feeMode = "FIXED" },
+                            label = { Text("Fixed Fee (₹)") }
                         )
                         FilterChip(
-                            selected = commissionMode == "BARBER_FLAT_FEE",
-                            onClick = { commissionMode = "BARBER_FLAT_FEE" },
-                            label = { Text("Flat Per Job (₹)") }
+                            selected = feeMode == "PERCENTAGE",
+                            onClick = { feeMode = "PERCENTAGE" },
+                            label = { Text("% Booking Fee") }
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
-                            value = barberCommBps,
-                            onValueChange = { barberCommBps = it.filter { c -> c.isDigit() } },
-                            label = { Text("Barber Comm (bps, 1500=15%)") },
+                            value = fixedBookingFeeRupees,
+                            onValueChange = { fixedBookingFeeRupees = it.filter { c -> c.isDigit() } },
+                            label = { Text("Booking Fee (₹, default 30)") },
                             singleLine = true,
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedTextField(
-                            value = barberFlatFeeRupees,
-                            onValueChange = { barberFlatFeeRupees = it.filter { c -> c.isDigit() } },
-                            label = { Text("Barber Flat Fee (₹)") },
+                            value = percentageFeeBps,
+                            onValueChange = { percentageFeeBps = it.filter { c -> c.isDigit() } },
+                            label = { Text("Fee % (bps, 500=5%)") },
                             singleLine = true,
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.weight(1f)
@@ -849,7 +850,7 @@ fun AdminPoliciesAndAuditScreen(
                     OutlinedTextField(
                         value = policyText,
                         onValueChange = { policyText = it },
-                        label = { Text("Customer Zero-Fee & Cancellation Policy Text") },
+                        label = { Text("Two-Payment & Cancellation Policy Text") },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -863,10 +864,11 @@ fun AdminPoliciesAndAuditScreen(
                     }
                     Button(
                         onClick = {
-                            viewModel.adminSaveBarberCommissionPolicy(
-                                commissionMode = commissionMode,
-                                barberCommissionBps = barberCommBps.toLongOrNull() ?: 1500L,
-                                barberFlatFeeRupees = barberFlatFeeRupees.toLongOrNull() ?: 0L,
+                            viewModel.adminSavePlatformPolicy(
+                                bookingFeeType = feeMode,
+                                fixedBookingFeeRupees = fixedBookingFeeRupees.toLongOrNull() ?: 30L,
+                                percentageBookingFeeBps = percentageFeeBps.toLongOrNull() ?: 0L,
+                                barberCommissionBps = 0L,
                                 cutoffHours = cutoffHrs.toLongOrNull() ?: 2L,
                                 slotHoldMinutes = holdMins.toLongOrNull() ?: 10L,
                                 policyText = policyText,
@@ -879,7 +881,7 @@ fun AdminPoliciesAndAuditScreen(
                             .fillMaxWidth()
                             .height(50.dp)
                     ) {
-                        Text("Save Barber Commission Policy", fontWeight = FontWeight.Bold)
+                        Text("Save Booking Fee & Policy", fontWeight = FontWeight.Bold)
                     }
                 }
             }

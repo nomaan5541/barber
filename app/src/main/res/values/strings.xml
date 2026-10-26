@@ -1,73 +1,77 @@
 <resources>
     <string name="app_name">DoorCut</string>
     <string name="cd_brand_logo">DoorCut barber scissors icon</string>
-    <string name="auth_subtitle">Luxury At-Home Barbering &amp; Nearest Salon Dispatch</string>
-    <string name="auth_how_it_works">Why Customers Choose DoorCut</string>
-    <string name="auth_feature_home_title">1. Auto-GPS Doorstep Detection</string>
-    <string name="auth_feature_home_desc">Sign in to auto-detect your location, enter your door/flat number, and discover the nearest master barbers &amp; shops that visit homes.</string>
-    <string name="auth_feature_payment_title">2. ₹0 Platform Fee for Customers</string>
-    <string name="auth_feature_payment_desc">Zero booking fee! Reserve your slot free and pay only the barber service price directly via UPI or Cash after your haircut.</string>
-    <string name="auth_feature_roles_title">3. Verified Skills &amp; Perfectionists</string>
-    <string name="auth_feature_roles_desc">Compare skin-fade, beard-sculpt &amp; scissor specialists with verified ratings, skills, and nearby partner barber shops.</string>
+    <string name="auth_subtitle">Home Barber Booking Made as Easy as Ordering Food</string>
+    <string name="auth_how_it_works">How DoorCut Works</string>
+    <string name="auth_feature_home_title">1. Choose Services &amp; Time</string>
+    <string name="auth_feature_home_desc">Pick Haircut, Beard Trim, or Combos with clear upfront prices and easy time-slot buttons.</string>
+    <string name="auth_feature_payment_title">2. Two Simple, Transparent Payments</string>
+    <string name="auth_feature_payment_desc">Pay a small booking confirmation fee now to lock your slot, and pay the service charge directly to your barber after the haircut by Cash or UPI.</string>
+    <string name="auth_feature_roles_title">3. Private Doorstep Dispatch</string>
+    <string name="auth_feature_roles_desc">Your full flat or house number is shared only with your assigned verified barber.</string>
     <string name="btn_sign_in_google">Continue with Google</string>
-    <string name="auth_privacy_caption">Exact door addresses are encrypted and shared only with your assigned barber.</string>
+    <string name="auth_privacy_caption">Your full home address is shared only with your assigned barber when confirmed.</string>
 
-    <string name="nav_discover">Services</string>
+    <!-- Customer Bottom Navigation (Strictly 4 items) -->
+    <string name="nav_home">Home</string>
     <string name="nav_bookings">Bookings</string>
-    <string name="nav_cart">Cart</string>
-    <string name="nav_addresses">Home Door</string>
-    <string name="nav_profile">Account</string>
-    <string name="nav_barber_jobs">Jobs</string>
+    <string name="nav_favourites">Favourites</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Barber Bottom Navigation (Strictly 4 items) -->
+    <string name="nav_barber_home">Home</string>
     <string name="nav_barber_schedule">Schedule</string>
     <string name="nav_barber_earnings">Earnings</string>
+    <string name="nav_barber_profile">Profile</string>
+
+    <!-- Admin Navigation -->
     <string name="nav_admin_overview">Overview</string>
     <string name="nav_admin_barbers">Barbers</string>
     <string name="nav_admin_catalog">Catalog</string>
     <string name="nav_admin_bookings">Bookings</string>
-    <string name="nav_admin_policies">Commission</string>
+    <string name="nav_admin_policies">Policies</string>
 
     <string name="role_customer">Customer Mode</string>
-    <string name="role_barber">Barber Console</string>
-    <string name="role_admin">Admin Control</string>
-    <string name="btn_sign_out">Sign Out</string>
+    <string name="role_barber">Barber Mode</string>
+    <string name="role_admin">Admin Dashboard</string>
+    <string name="btn_sign_out">Log Out</string>
+    <string name="btn_sign_in_short">Sign In</string>
 
-    <string name="door_setup_eyebrow">GOOGLE LOCATION SERVICES</string>
-    <string name="door_setup_title">Enter Your House or Door Number</string>
-    <string name="door_setup_subtitle">Live GPS coordinates lock your street — add your exact house, flat, or door number for doorstep barber dispatch.</string>
-    <string name="door_coordinates_locked">GPS COORDINATES LOCKED</string>
-    <string name="door_coordinates_detecting">DETECTING COORDINATES…</string>
+    <!-- Customer Home -->
+    <string name="home_default_location">Home · Hyderabad</string>
+    <string name="home_greeting_headline">Looking sharp starts here.</string>
+    <string name="home_greeting_subtitle">Verified barbers at your doorstep with clean tools, clear prices, and zero salon wait.</string>
+    <string name="btn_book_a_barber">Book a Barber</string>
+    <string name="home_next_appointment_title">Your next appointment</string>
+    <string name="home_popular_services_title">Popular services</string>
+    <string name="home_categories_title">Categories</string>
+    <string name="home_special_offers_title">Special offers</string>
+
+    <!-- Door / Address Setup -->
+    <string name="door_setup_eyebrow">CONFIRM HOME ADDRESS</string>
+    <string name="door_setup_title">Confirm Home Address</string>
+    <string name="door_setup_subtitle">Pin your GPS coordinates and enter your flat or house number so your barber knows where to arrive.</string>
+    <string name="door_coordinates_locked">GPS PIN LOCKED</string>
+    <string name="door_coordinates_detecting">DETECTING GPS…</string>
     <string name="door_coordinates_pending">LOCATION PERMISSION NEEDED</string>
-    <string name="door_btn_detect_gps">Detect Current Coordinates</string>
-    <string name="door_btn_refresh_gps">Refresh GPS Coordinates</string>
-    <string name="door_btn_confirm_save">Confirm Coordinates &amp; Save Door</string>
-    <string name="door_btn_skip">Skip for Now</string>
-    <string name="door_label_house_input">Specific House / Door / Flat Number *</string>
-    <string name="door_placeholder_house_input">e.g., House #42, Door 204, Villa B-12</string>
+    <string name="door_btn_detect_gps">Use Current GPS Pin</string>
+    <string name="door_btn_refresh_gps">Update GPS Pin</string>
+    <string name="door_btn_confirm_save">Save Home Address</string>
+    <string name="door_btn_skip">Back</string>
+    <string name="door_label_house_input">Flat / House Number *</string>
+    <string name="door_placeholder_house_input">e.g., Flat 204, House #42</string>
     <string name="door_label_building_input">Building / Society / Floor (Optional)</string>
-    <string name="door_placeholder_building_input">e.g., 2nd Floor, Rosewood Enclave</string>
-    <string name="door_label_street_input">Detected Street &amp; Area *</string>
+    <string name="door_placeholder_building_input">e.g., 2nd Floor, Banjara Residency</string>
+    <string name="door_label_street_input">Street &amp; Area *</string>
     <string name="door_label_landmark_input">Nearby Landmark</string>
     <string name="door_label_pin_input">PIN Code *</string>
-    <string name="door_label_instructions_input">Doorbell / Gate / Intercom Note</string>
-    <string name="cd_gps_radar_icon">Google Location Services GPS coordinate lock</string>
+    <string name="door_label_instructions_input">Optional Instructions (e.g., Call when downstairs)</string>
+    <string name="cd_gps_radar_icon">Google Location Services GPS pin</string>
 
-    <string name="service_selection_eyebrow">SERVICE SELECTION • AT-HOME MENU</string>
-    <string name="service_selection_title">Haircuts, Beard &amp; Home Grooming</string>
-    <string name="service_selection_subtitle">Tap any cut for full details &amp; pricing • Normal Head Cut, Traditional Haircut, Fades &amp; Combos at ₹0 platform fee</string>
-    <string name="service_grid_placeholder_badge">FULL MENU</string>
-    <string name="service_landing_signin_title">Sign in with Google to Pick a Barber &amp; Time Slot</string>
-    <string name="service_landing_signin_desc">Your selected haircuts, payment preference, and GPS door address carry straight into live slot booking.</string>
-    <string name="btn_sign_in_short">Sign In</string>
-    <string name="bookings_signin_gate_title">Sign In to View Your Appointments</string>
-    <string name="bookings_signin_gate_subtitle">Track live barber arrival, zero-fee receipts, and repeat past haircuts with Google Sign-In.</string>
-
-    <string name="permissions_banner_title">Enable Phone Permissions for Doorstep Dispatch</string>
-    <string name="permissions_banner_subtitle">Allow GPS Location for door coordinates, Notifications for live barber arrival alerts, and Camera for hairstyle references.</string>
-    <string name="permissions_btn_grant_all">Allow Phone Permissions</string>
-    <string name="cart_eyebrow">GROOMING CART &amp; CARD PAY</string>
-    <string name="cart_title">Your Home Grooming Cart</string>
-    <string name="cart_subtitle">Review selected haircuts, choose Card POS / UPI / Cash at door, and lock your barber slot with ₹0 platform fee.</string>
-    <string name="account_eyebrow">MEMBER ACCOUNT &amp; PREFERENCES</string>
-    <string name="account_title">My Account &amp; Past Bookings</string>
-    <string name="account_subtitle">Repeat previous haircuts, manage Card/UPI preferences, phone permissions, saved doors, and grooming style notes.</string>
+    <!-- Auth Gates & Permissions -->
+    <string name="bookings_signin_gate_title">Sign in to view your bookings</string>
+    <string name="bookings_signin_gate_subtitle">Track your barber live, view upcoming &amp; completed haircuts, and book again in one tap.</string>
+    <string name="permissions_banner_title">Enable Location &amp; Arrival Alerts</string>
+    <string name="permissions_banner_subtitle">Allow GPS for doorstep pin accuracy and Notifications for barber arrival updates.</string>
+    <string name="permissions_btn_grant_all">Allow Permissions</string>
 </resources>

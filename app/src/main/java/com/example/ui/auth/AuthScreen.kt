@@ -72,6 +72,11 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.R
+import com.example.ui.glass.AmbientAtelierBackdrop
+import com.example.ui.glass.GlassMaterialStrength
+import com.example.ui.glass.LiquidGlassSurface
+import com.example.ui.motion.staggeredSpringEntrance
+import com.example.ui.motion.tactilePressPhysics
 import com.example.ui.theme.BrassGold
 import com.example.ui.theme.EspressoHeaderBg
 import com.example.ui.theme.SageVerified
@@ -222,92 +227,86 @@ fun AuthScreen(
         )
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                )
-            )
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Column(
+    AmbientAtelierBackdrop {
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 560.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.TopCenter
         ) {
-            Column {
-                // Editorial Asymmetric Hero Frame
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(238.dp)
-                        .clip(RoundedCornerShape(28.dp))
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_svc_haircut_1792915150040),
-                        contentDescription = stringResource(R.string.cd_brand_logo),
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    // Editorial Asymmetric Hero Frame
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.22f),
-                                        Color.Black.copy(alpha = 0.45f),
-                                        EspressoHeaderBg.copy(alpha = 0.94f)
+                            .fillMaxWidth()
+                            .height(238.dp)
+                            .clip(RoundedCornerShape(28.dp))
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.img_svc_haircut_1792915150040),
+                            contentDescription = stringResource(R.string.cd_brand_logo),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.22f),
+                                            Color.Black.copy(alpha = 0.45f),
+                                            EspressoHeaderBg.copy(alpha = 0.94f)
+                                        )
                                     )
                                 )
-                            )
-                    )
+                        )
 
-                    // Top-left Atelier Monogram Crest
-                    Surface(
-                        color = EspressoHeaderBg.copy(alpha = 0.82f),
-                        shape = RoundedCornerShape(50),
-                        border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        // Top-left Atelier Monogram Crest (HeroLens Glass)
+                        LiquidGlassSurface(
+                            strength = GlassMaterialStrength.HeroLens,
+                            shape = RoundedCornerShape(50),
+                            shadowElevation = 0.dp,
+                            interactivePhysics = false,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(14.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.ContentCut,
-                                contentDescription = null,
-                                tint = BrassGold,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "BESPOKE AT-HOME SALON",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFFFDF9E)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.ContentCut,
+                                    contentDescription = null,
+                                    tint = BrassGold,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "BESPOKE AT-HOME SALON",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFFFDF9E)
+                                )
+                            }
                         }
-                    }
 
-                    // Top-right Zero Customer Fee Seal
-                    Surface(
-                        color = SageVerified,
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(14.dp)
-                    ) {
+                        // Top-right Verified Barbers Seal
+                        Surface(
+                            color = SageVerified,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(14.dp)
+                        ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -320,7 +319,7 @@ fun AuthScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "₹0 PLATFORM FEE",
+                                text = "VERIFIED BARBERS",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -349,16 +348,17 @@ fun AuthScreen(
                     }
                 }
 
-                // Overlapping Architectural Trust Card (Grid-breaking depth)
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                // Overlapping Architectural Trust Card (Living Liquid Glass depth)
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.AtelierCard,
                     shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    shadowElevation = 6.dp,
+                    interactivePhysics = false,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 6.dp)
                         .offset(y = (-16).dp)
+                        .staggeredSpringEntrance(index = 1)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text(
@@ -402,11 +402,11 @@ fun AuthScreen(
                 }
 
                 if (onOpenDoorSetup != null || pendingDoorDraft != null || detectedLocation != null) {
-                    Surface(
+                    LiquidGlassSurface(
+                        strength = GlassMaterialStrength.FloatingPill,
                         shape = RoundedCornerShape(20.dp),
-                        color = EspressoHeaderBg,
-                        contentColor = Color.White,
-                        border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.45f)),
+                        shadowElevation = 4.dp,
+                        interactivePhysics = false,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 6.dp)
@@ -535,6 +535,7 @@ fun AuthScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(58.dp)
+                        .tactilePressPhysics(enabled = !isLoading, enableHaptics = true)
                         .testTag("google_sign_in_button")
                 ) {
                     if (isLoading) {
@@ -576,6 +577,7 @@ fun AuthScreen(
                     textAlign = TextAlign.Center
                 )
             }
+        }
         }
     }
 }

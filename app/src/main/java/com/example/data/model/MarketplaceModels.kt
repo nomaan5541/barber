@@ -17,21 +17,21 @@ enum class AccountStatus {
 enum class ServiceCategory(val displayTitle: String) {
     HAIRCUTS("Haircuts"),
     BEARD_MOUSTACHE("Beard & Shave"),
-    HAIR_CARE("Wash & Hair Care"),
-    ADD_ONS("Facial & Detailing"),
-    PACKAGES("Home Combos")
+    HAIR_CARE("Hair Care"),
+    ADD_ONS("Facials"),
+    PACKAGES("Combos")
 }
 
 enum class BookingStatus(val label: String) {
     DRAFT("Draft"),
     SLOT_HELD("Slot Held"),
-    PAYMENT_PENDING("Pending"),
-    AWAITING_BARBER("Awaiting Barber Acceptance"),
-    CONFIRMED("Confirmed"),
-    ON_THE_WAY("Barber On The Way"),
-    ARRIVED("Barber Arrived"),
-    IN_PROGRESS("Service In Progress"),
-    COMPLETED("Completed"),
+    PAYMENT_PENDING("Payment Pending"),
+    AWAITING_BARBER("Waiting for barber confirmation"),
+    CONFIRMED("Barber assigned and booking confirmed"),
+    ON_THE_WAY("Barber is on the way"),
+    ARRIVED("Barber has arrived"),
+    IN_PROGRESS("Service in progress"),
+    COMPLETED("Service completed"),
     CANCELLED("Cancelled"),
     EXPIRED("Expired"),
     NO_SHOW("No-Show"),
@@ -68,7 +68,13 @@ data class CustomerAddress(
     val longitude: Double = 0.0,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
-)
+) {
+    fun displayLabel(): String = when (label.uppercase(Locale.US)) {
+        "HOME" -> "Home"
+        "OFFICE" -> "Work"
+        else -> "Other"
+    }
+}
 
 @IgnoreExtraProperties
 data class BarberProfile(
@@ -103,45 +109,45 @@ data class BarberProfile(
     fun effectiveSkills(): List<String> {
         if (skills.isNotEmpty()) return skills
         return when (barberId) {
-            "barber_arman_master" -> listOf("Zero Skin Fade", "Razor Beard Sculpt", "Crop Texture", "Sharp Line-Up")
-            "barber_vikram_stylist" -> listOf("Executive Scissor Cut", "Detan Facial", "Hot Towel Shave", "Blow-Dry Style")
-            "barber_danish_pro" -> listOf("Classic Taper Cut", "Kids Gentle Cut", "Senior Home Care", "Ayurvedic Head Massage")
-            "barber_kabir_atelier" -> listOf("Burst & Drop Fade", "Moustache Styling", "Charcoal Cleanup", "Wedding Grooming")
-            else -> listOf("Precision Haircut", "Beard Shaping", "Sanitized Home Kit")
+            "barber_arman_master" -> listOf("Skin Fade", "Beard Trim", "Textured Crop", "Sharp Line-Up")
+            "barber_vikram_stylist" -> listOf("Scissor Haircut", "Detan Facial", "Hot Towel Shave", "Blow-Dry")
+            "barber_danish_pro" -> listOf("Traditional Haircut", "Kids Cut", "Senior Care", "Head Massage")
+            "barber_kabir_atelier" -> listOf("Drop Fade", "Moustache Trim", "Charcoal Cleanup", "Grooming Combo")
+            else -> listOf("Haircut", "Beard Trim", "Sanitized Home Kit")
         }
     }
 
     fun effectivePerfectionBadge(): String {
         if (perfectionBadge.isNotBlank()) return perfectionBadge
         return when (barberId) {
-            "barber_arman_master" -> "99% Skin Fade Perfection"
-            "barber_vikram_stylist" -> "98% Executive Finish"
-            "barber_danish_pro" -> "99% Family & Scissor Craft"
-            "barber_kabir_atelier" -> "98% Razor Line Precision"
-            else -> "Verified Master Perfection"
+            "barber_arman_master" -> "Top Rated · Fade & Beard"
+            "barber_vikram_stylist" -> "Senior Stylist · 8 Yrs"
+            "barber_danish_pro" -> "Family & Traditional Pro"
+            "barber_kabir_atelier" -> "Modern Cuts & Shaves"
+            else -> "Verified Home Barber"
         }
     }
 
     fun effectiveShopName(): String {
         if (shopName.isNotBlank()) return shopName
         return when (barberId) {
-            "barber_arman_master" -> "Royal Blade Grooming Atelier"
+            "barber_arman_master" -> "Royal Blade Grooming Studio"
             "barber_vikram_stylist" -> "Crown & Clipper Men's Studio"
             "barber_danish_pro" -> "Heritage Scissor & Shave Lounge"
             "barber_kabir_atelier" -> "Urban Fade & Beard House"
-            else -> "${name.substringBefore(" ")}'s Partner Barber Studio"
+            else -> "${name.substringBefore(" ")}'s Barber Studio"
         }
     }
 
     fun effectiveShopAddress(customerLocalityHint: String = ""): String {
         if (shopAddress.isNotBlank()) return shopAddress
-        val areaSuffix = if (customerLocalityHint.isNotBlank()) customerLocalityHint else "Main High Street"
+        val areaSuffix = if (customerLocalityHint.isNotBlank()) customerLocalityHint else "Hyderabad Central"
         return when (barberId) {
-            "barber_arman_master" -> "Shop #14, 100ft Road, $areaSuffix"
-            "barber_vikram_stylist" -> "2nd Cross, Signature Plaza, $areaSuffix"
-            "barber_danish_pro" -> "Ground Floor, Parkview Arcade, $areaSuffix"
-            "barber_kabir_atelier" -> "Studio 7, Metro Boulevard, $areaSuffix"
-            else -> "Partner Barber Hub, $areaSuffix"
+            "barber_arman_master" -> "Road No. 12, Banjara Hills, $areaSuffix"
+            "barber_vikram_stylist" -> "Jubilee Hills Checkpost, $areaSuffix"
+            "barber_danish_pro" -> "Madhapur Main Road, $areaSuffix"
+            "barber_kabir_atelier" -> "Gachibowli Boulevard, $areaSuffix"
+            else -> "Local Service Area, $areaSuffix"
         }
     }
 
@@ -239,7 +245,7 @@ data class Booking(
     val barberServicePayablePaise: Long = 0L,
     val platformBookingFeePaise: Long = 0L,
     val totalCustomerCostPaise: Long = 0L,
-    val bookingFeeStatus: String = "ZERO_CUSTOMER_FEE",
+    val bookingFeeStatus: String = "PAID_VERIFIED",
     val bookingFeeTxRef: String = "",
     val barberCommissionPaise: Long = 0L,
     val barberNetEarningsPaise: Long = 0L,
@@ -269,6 +275,38 @@ data class Booking(
         if (barberNetEarningsPaise > 0L) return barberNetEarningsPaise
         val comm = effectiveBarberCommissionPaise(defaultBps)
         return (barberServicePayablePaise - comm).coerceAtLeast(0L)
+    }
+
+    fun isUpcoming(): Boolean = status in setOf(
+        "DRAFT", "SLOT_HELD", "PAYMENT_PENDING", "AWAITING_BARBER",
+        "CONFIRMED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS"
+    )
+
+    fun isCompletedTab(): Boolean = status in setOf("COMPLETED", "DISPUTED")
+
+    fun isCancelledTab(): Boolean = status in setOf("CANCELLED", "EXPIRED", "NO_SHOW")
+
+    fun friendlyStatusText(): String = when (status) {
+        "AWAITING_BARBER", "SLOT_HELD", "PAYMENT_PENDING" -> "Waiting for barber confirmation"
+        "CONFIRMED" -> "Barber assigned and booking confirmed"
+        "ON_THE_WAY" -> "Barber is on the way"
+        "ARRIVED" -> "Barber has arrived"
+        "IN_PROGRESS" -> "Service in progress"
+        "COMPLETED" -> "Service completed"
+        "CANCELLED" -> "Cancelled"
+        "EXPIRED" -> "Expired"
+        "DISPUTED" -> "Payment under review"
+        else -> status.replace("_", " ")
+    }
+
+    fun directPaymentSummaryLabel(): String = when (directPaymentStatus) {
+        "CASH_DECLARED" -> "Cash received (${CurrencyUtils.formatRupees(directPaymentDeclaredPaise)})"
+        "UPI_DECLARED" -> "UPI declared (${CurrencyUtils.formatRupees(directPaymentDeclaredPaise)})"
+        "CUSTOMER_CONFIRMED" -> "Paid directly (${directPaymentMethod.ifBlank { "UPI/Cash" }})"
+        "PARTIAL_DECLARED" -> "Partial payment recorded"
+        "UNPAID_DECLARED" -> "Unconfirmed direct payment"
+        "DISPUTED" -> "Disputed direct payment"
+        else -> "Pay directly to barber after service"
     }
 }
 
@@ -328,18 +366,32 @@ data class AuditLog(
 @IgnoreExtraProperties
 data class PlatformConfig(
     @DocumentId val id: String = "",
-    val bookingFeeType: String = "BARBER_COMMISSION_PERCENT",
-    val fixedBookingFeePaise: Long = 0L, // ₹0 Customer Platform Fee
-    val percentageBookingFeeBps: Long = 0L, // 0% Customer Platform Fee
-    val barberCommissionBps: Long = 1500L, // 15% Charged from Barber
+    val bookingFeeType: String = "FIXED",
+    val fixedBookingFeePaise: Long = 3000L, // Default ₹30 Booking Confirmation Fee (configurable by Admin)
+    val percentageBookingFeeBps: Long = 0L,
+    val barberCommissionBps: Long = 0L,
     val barberFlatFeePaise: Long = 0L,
     val freeCancellationCutoffHours: Long = 2L,
     val slotHoldMinutes: Long = 10L,
-    val policyText: String = "₹0 Platform Fee for Customers! Free cancellation up to 2 hours before appointment. Pay only the barber service price directly via UPI or Cash after completion.",
+    val policyText: String = "Free cancellation up to 2 hours before your appointment. Pay the booking confirmation fee now to reserve your barber, and pay the service charge directly to your barber after completion by Cash or UPI.",
     val maintenanceMode: Boolean = false,
     val updatedBy: String = "",
     @ServerTimestamp val updatedAt: Timestamp? = null
-)
+) {
+    /**
+     * Resolves the Booking Confirmation Fee paid upfront to confirm the slot.
+     * Defaults to ₹30 (`3000L` paise) when using default/legacy configuration unless Admin explicitly sets 0.
+     */
+    fun effectiveCustomerBookingFeePaise(serviceSubtotalPaise: Long = 0L): Long {
+        return when {
+            bookingFeeType == "PERCENTAGE" && percentageBookingFeeBps > 0L ->
+                ((serviceSubtotalPaise * percentageBookingFeeBps) / 10000L).coerceAtLeast(0L)
+            fixedBookingFeePaise > 0L -> fixedBookingFeePaise
+            policyText.contains("[ZERO_FEE]") -> 0L
+            else -> 3000L
+        }
+    }
+}
 
 object CurrencyUtils {
     fun formatRupees(paise: Long): String {

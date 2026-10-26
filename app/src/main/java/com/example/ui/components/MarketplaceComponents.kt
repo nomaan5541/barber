@@ -54,6 +54,11 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.CatalogService
 import com.example.data.model.CurrencyUtils
+import com.example.ui.glass.GlassMaterialStrength
+import com.example.ui.glass.LiquidGlassSurface
+import com.example.ui.glass.LiveGlassPulseDot
+import com.example.ui.motion.DoorCutMotionSpecs
+import com.example.ui.motion.LocalReducedMotion
 import com.example.ui.theme.AmberPending
 import com.example.ui.theme.BrassGold
 import com.example.ui.theme.CrimsonDispute
@@ -248,21 +253,11 @@ fun MetricBentoCard(
     accentHighlight: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    LiquidGlassSurface(
+        strength = if (accentHighlight) GlassMaterialStrength.AccentEmerald else GlassMaterialStrength.AtelierCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(
-            1.dp,
-            if (accentHighlight) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-            else MaterialTheme.colorScheme.outlineVariant
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = if (accentHighlight) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shadowElevation = 2.dp,
+        interactivePhysics = true,
         modifier = modifier
     ) {
         Column(
@@ -424,110 +419,270 @@ fun PerforatedReceiptDivider(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun CustomerDirectPriceCard(
-    serviceSubtotalPaise: Long,
-    approvedAddOnPaise: Long,
-    travelChargePaise: Long,
-    barberServicePayablePaise: Long,
-    directPaymentStatusLabel: String? = null,
+fun SixStageBookingTimeline(
+    status: String,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    val stages = listOf(
+        "AWAITING_BARBER" to "Waiting for barber confirmation",
+        "CONFIRMED" to "Barber assigned and booking confirmed",
+        "ON_THE_WAY" to "Barber is on the way",
+        "ARRIVED" to "Barber has arrived",
+        "IN_PROGRESS" to "Service in progress",
+        "COMPLETED" to "Service completed"
+    )
+
+    val activeIndex = when (status) {
+        "DRAFT", "SLOT_HELD", "PAYMENT_PENDING", "AWAITING_BARBER" -> 0
+        "CONFIRMED" -> 1
+        "ON_THE_WAY" -> 2
+        "ARRIVED" -> 3
+        "IN_PROGRESS" -> 4
+        "COMPLETED", "DISPUTED" -> 5
+        else -> -1
+    }
+
+    LiquidGlassSurface(
+        strength = GlassMaterialStrength.AtelierCard,
+        shape = RoundedCornerShape(22.dp),
+        shadowElevation = 2.dp,
+        interactivePhysics = false,
         modifier = modifier
             .fillMaxWidth()
-            .testTag("customer_direct_price_card"),
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+            .testTag("six_stage_booking_timeline")
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (status in setOf("CANCELLED", "EXPIRED", "NO_SHOW")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusBadge(status)
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "ATELIER RECEIPT",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Zero-Fee Summary",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        text = "This appointment is no longer active.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                StatusBadge("₹0 PLATFORM FEE")
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            PriceLine("Selected Grooming Services", CurrencyUtils.formatRupees(serviceSubtotalPaise))
-            if (approvedAddOnPaise > 0L) {
-                PriceLine("Approved Extra Add-On", "+ ${CurrencyUtils.formatRupees(approvedAddOnPaise)}")
-            }
-            if (travelChargePaise > 0L) {
-                PriceLine("Doorstep Travel Allowance", "+ ${CurrencyUtils.formatRupees(travelChargePaise)}")
-            }
-            PriceLine(
-                label = "Customer Platform / Booking Fee",
-                amount = "₹0 FREE",
-                highlightFree = true
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-            PerforatedReceiptDivider()
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = EspressoHeaderBg,
-                contentColor = Color(0xFFF8F3EC),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            } else {
+                stages.forEachIndexed { idx, (_, title) ->
+                    val isDone = idx < activeIndex || status in setOf("COMPLETED", "DISPUTED")
+                    val isCurrent = idx == activeIndex && status !in setOf("COMPLETED", "DISPUTED")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
-                                .background(BrassGold.copy(alpha = 0.2f)),
+                                .background(
+                                    when {
+                                        isDone -> SageVerified
+                                        isCurrent -> EspressoHeaderBg
+                                        else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Handshake,
-                                contentDescription = null,
-                                tint = BrassGold,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            if (isDone) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "${idx + 1}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCurrent) Color(0xFFFFDF9E) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Pay Barber Directly",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                text = title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isCurrent || isDone) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    isCurrent -> MaterialTheme.colorScheme.onSurface
+                                    isDone -> SageVerified
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                             )
-                            Text(
-                                text = directPaymentStatusLabel ?: "Settle via UPI or Cash after your cut",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFD9CBB8)
+                            if (isCurrent) {
+                                Text(
+                                    text = "Current stage",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        if (isCurrent) {
+                            LiveGlassPulseDot(
+                                statusKey = status,
+                                color = BrassGold,
+                                size = 9.dp
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Visually separates the Two Payments everywhere in the app:
+ * 1) Booking confirmation fee paid to DoorCut to confirm the slot (e.g. ₹30)
+ * 2) Service charge paid directly to the barber after service by Cash or UPI (e.g. ₹450)
+ * Never combines them into a single confusing payout figure.
+ */
+@Composable
+fun TwoPaymentSplitCard(
+    serviceSummaryLabel: String,
+    serviceSubtotalPaise: Long,
+    approvedAddOnPaise: Long = 0L,
+    travelChargePaise: Long = 0L,
+    barberServicePayablePaise: Long,
+    bookingConfirmationFeePaise: Long,
+    isBookingFeeAlreadyPaid: Boolean,
+    directPaymentNote: String? = null,
+    modifier: Modifier = Modifier
+) {
+    LiquidGlassSurface(
+        strength = GlassMaterialStrength.AtelierCard,
+        shape = RoundedCornerShape(22.dp),
+        shadowElevation = 2.dp,
+        interactivePhysics = false,
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("two_payment_split_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Two Clear, Separate Payments",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            // Box 1: Pay Now (Booking Confirmation Fee)
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isBookingFeeAlreadyPaid) "1. Booking confirmation fee (Paid)" else "1. Pay now — Booking confirmation fee",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Reserves your verified barber & appointment slot",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = CurrencyUtils.formatRupees(barberServicePayablePaise),
+                        text = CurrencyUtils.formatRupees(bookingConfirmationFeePaise),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFFDF9E)
+                        color = if (isBookingFeeAlreadyPaid) SageVerified else MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            // Box 2: Pay Directly to Barber After Service
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.FloatingPill,
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = false,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(BrassGold.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Handshake,
+                                    contentDescription = null,
+                                    tint = BrassGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "2. Pay after service to barber",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = serviceSummaryLabel,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFD9CBB8),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = CurrencyUtils.formatRupees(barberServicePayablePaise),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFDF9E)
+                        )
+                    }
+                    if (approvedAddOnPaise > 0L || travelChargePaise > 0L) {
+                        Text(
+                            text = buildString {
+                                append("Services: ${CurrencyUtils.formatRupees(serviceSubtotalPaise)}")
+                                if (approvedAddOnPaise > 0L) append(" + Extra: ${CurrencyUtils.formatRupees(approvedAddOnPaise)}")
+                                if (travelChargePaise > 0L) append(" + Travel: ${CurrencyUtils.formatRupees(travelChargePaise)}")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFFDF9E)
+                        )
+                    }
+                    Text(
+                        text = directPaymentNote
+                            ?: "Pay ${CurrencyUtils.formatRupees(barberServicePayablePaise)} directly to your barber after the service by cash or UPI.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFF8F3EC)
                     )
                 }
             }
@@ -536,75 +691,26 @@ fun CustomerDirectPriceCard(
 }
 
 @Composable
-fun BarberCommissionBreakdownCard(
-    grossCustomerPayablePaise: Long,
-    barberCommissionPaise: Long,
-    barberNetEarningsPaise: Long,
+fun CustomerDirectPriceCard(
+    serviceSubtotalPaise: Long,
+    approvedAddOnPaise: Long,
+    travelChargePaise: Long,
+    barberServicePayablePaise: Long,
+    bookingConfirmationFeePaise: Long = 3000L,
     directPaymentStatusLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("barber_commission_breakdown_card"),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.AccountBalanceWallet,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Barber Payout & Partner Commission",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-            PriceLine("Collect Directly from Customer", CurrencyUtils.formatRupees(grossCustomerPayablePaise))
-            PriceLine("Customer Platform Fee", "₹0 (Zero Fee)", highlightFree = true)
-            PriceLine("DoorCut Partner Commission", "- ${CurrencyUtils.formatRupees(barberCommissionPaise)}")
-
-            Spacer(modifier = Modifier.height(4.dp))
-            PerforatedReceiptDivider()
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Your Net Take-Home",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (!directPaymentStatusLabel.isNullOrBlank()) {
-                        Text(
-                            text = directPaymentStatusLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Text(
-                    text = CurrencyUtils.formatRupees(barberNetEarningsPaise),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
-            }
-        }
-    }
+    TwoPaymentSplitCard(
+        serviceSummaryLabel = "Selected grooming services",
+        serviceSubtotalPaise = serviceSubtotalPaise,
+        approvedAddOnPaise = approvedAddOnPaise,
+        travelChargePaise = travelChargePaise,
+        barberServicePayablePaise = barberServicePayablePaise,
+        bookingConfirmationFeePaise = bookingConfirmationFeePaise,
+        isBookingFeeAlreadyPaid = true,
+        directPaymentNote = directPaymentStatusLabel,
+        modifier = modifier.testTag("customer_direct_price_card")
+    )
 }
 
 @Composable
@@ -695,13 +801,14 @@ fun EmptyStateCard(
     subtitle: String,
     action: (@Composable () -> Unit)? = null
 ) {
-    Card(
+    LiquidGlassSurface(
+        strength = GlassMaterialStrength.AtelierCard,
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 2.dp,
+        interactivePhysics = false,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            .padding(vertical = 10.dp)
     ) {
         Column(
             modifier = Modifier
@@ -750,17 +857,19 @@ fun DismissibleStatusBanner(
     message: String?,
     onDismiss: () -> Unit
 ) {
+    val reducedMotion = LocalReducedMotion.current
     AnimatedVisibility(
         visible = !message.isNullOrBlank(),
-        enter = slideInVertically { -it / 2 } + fadeIn(),
-        exit = slideOutVertically { -it / 2 } + fadeOut()
+        enter = slideInVertically(
+            animationSpec = DoorCutMotionSpecs.surfaceSettleSpring(reducedMotion)
+        ) { -it } + fadeIn(),
+        exit = slideOutVertically { -it } + fadeOut()
     ) {
-        Surface(
-            color = EspressoHeaderBg,
-            contentColor = Color(0xFFF8F3EC),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.45f)),
-            shadowElevation = 4.dp,
+        LiquidGlassSurface(
+            strength = GlassMaterialStrength.FloatingPill,
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 6.dp,
+            interactivePhysics = false,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
