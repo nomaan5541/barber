@@ -74,4 +74,6 @@
     <string name="permissions_banner_title">Enable Location &amp; Arrival Alerts</string>
     <string name="permissions_banner_subtitle">Allow GPS for doorstep pin accuracy and Notifications for barber arrival updates.</string>
     <string name="permissions_btn_grant_all">Allow Permissions</string>
+    <string name="auth_signing_in">Signing in with Google…</string>
+    <string name="auth_btn_google">Continue with Google</string>
 </resources>

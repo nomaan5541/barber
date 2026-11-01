@@ -3,7 +3,6 @@ package com.example.ui.customer
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,8 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,16 +31,12 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,11 +56,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.CustomerAddress
 import com.example.data.model.ServiceArea
 import com.example.ui.components.EmptyStateCard
+import com.example.ui.components.InteractiveLocationPinMap
 import com.example.ui.components.SectionHeader
 import com.example.ui.components.StatusBadge
+import com.example.ui.glass.GlassMaterialStrength
+import com.example.ui.glass.LiquidGlassPill
+import com.example.ui.glass.LiquidGlassSurface
+import com.example.ui.glass.LiveGlassPulseDot
+import com.example.ui.motion.staggeredSpringEntrance
+import com.example.ui.motion.tactilePressPhysics
 import com.example.ui.theme.BrassGold
 import com.example.ui.theme.EspressoHeaderBg
 import com.example.ui.viewmodel.MarketplaceViewModel
+import com.example.util.DetectedDoorLocation
 import com.example.util.LocationHelper
 
 @Composable
@@ -82,17 +86,23 @@ fun CustomerAddressesScreen(
     var flatHouse by remember { mutableStateOf("") }
     var streetArea by remember { mutableStateOf("") }
     var landmark by remember { mutableStateOf("") }
-    var postalCode by remember { mutableStateOf("560038") }
+    var postalCode by remember { mutableStateOf("500034") }
     var accessInstructions by remember { mutableStateOf("") }
     var isDefault by remember { mutableStateOf(addresses.isEmpty()) }
+    var pinnedLocation by remember { mutableStateOf<DetectedDoorLocation?>(detectedLocation) }
 
     LaunchedEffect(detectedLocation) {
         val loc = detectedLocation ?: return@LaunchedEffect
+        if (loc.hasValidCoordinates) {
+            pinnedLocation = loc
+        }
         if (flatHouse.isBlank() && loc.doorHint.isNotBlank()) flatHouse = loc.doorHint
         if (streetArea.isBlank()) streetArea = loc.streetArea
         if (landmark.isBlank()) landmark = loc.landmark
         if (loc.postalCode.isNotBlank()) postalCode = loc.postalCode
     }
+
+    val activeLocation = pinnedLocation ?: detectedLocation
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -105,113 +115,174 @@ fun CustomerAddressesScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("customer_addresses_screen"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
             SectionHeader(
                 eyebrow = "ENCRYPTED DOORSTEP VAULT",
                 title = "Home Door & GPS Addresses",
-                subtitle = "Exact flat/door numbers remain private and are shared only with your assigned barber."
+                subtitle = "Exact flat/door numbers remain private and are shared only with your assigned barber.",
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
-        // GPS Radar Banner
+        // GPS Radar Liquid Glass Banner + Interactive Pin Map
         item {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = EspressoHeaderBg,
-                contentColor = Color.White,
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 1),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.FloatingPill,
+                    shape = RoundedCornerShape(22.dp),
+                    accentBorderColor = BrassGold.copy(alpha = 0.5f),
+                    shadowElevation = 4.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(BrassGold.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.MyLocation,
-                                contentDescription = null,
-                                tint = BrassGold,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = if (detectedLocation != null) {
-                                    "GPS Locked: ${detectedLocation!!.formattedCoordinates()}"
-                                } else {
-                                    "Google Location Services Coordinates"
-                                },
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = if (detectedLocation != null) {
-                                    "${detectedLocation!!.streetArea} (${detectedLocation!!.postalCode})"
-                                } else {
-                                    "Auto-detect coordinates & street, then enter your house or door number"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFD6C8B6)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            if (LocationHelper.hasLocationPermission(context)) {
-                                viewModel.autoFetchLocationAndPromptDoor(context, promptForHomeAddressAfterFetch = false)
-                            } else {
-                                permissionLauncher.launch(
-                                    arrayOf(
-                                        Manifest.permission.ACCESS_FINE_LOCATION,
-                                        Manifest.permission.ACCESS_COARSE_LOCATION
-                                    )
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(BrassGold.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MyLocation,
+                                    contentDescription = null,
+                                    tint = BrassGold,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                        },
-                        enabled = !isFetchingLocation,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = BrassGold,
-                            contentColor = EspressoHeaderBg
-                        ),
-                        modifier = Modifier
-                            .height(48.dp)
-                            .testTag("auto_fetch_gps_address_button")
-                    ) {
-                        if (isFetchingLocation) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = EspressoHeaderBg,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text("Auto-GPS", fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (activeLocation != null) {
+                                        LiveGlassPulseDot(
+                                            statusKey = activeLocation.formattedCoordinates(),
+                                            color = Color(0xFF8BE8C0),
+                                            size = 8.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+                                    Text(
+                                        text = if (activeLocation != null) {
+                                            "Pin Locked: ${activeLocation.formattedCoordinates()}"
+                                        } else {
+                                            "Google Location Services Coordinates"
+                                        },
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                                Text(
+                                    text = if (activeLocation != null) {
+                                        "${activeLocation.streetArea} (${activeLocation.postalCode})"
+                                    } else {
+                                        "Tap Auto-GPS or search & drag the map pin below"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFD6C8B6)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (LocationHelper.hasLocationPermission(context)) {
+                                    viewModel.autoFetchLocationAndPromptDoor(context, promptForHomeAddressAfterFetch = false)
+                                } else {
+                                    permissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                }
+                            },
+                            enabled = !isFetchingLocation,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BrassGold,
+                                contentColor = EspressoHeaderBg
+                            ),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .tactilePressPhysics(enableHaptics = true)
+                                .testTag("auto_fetch_gps_address_button")
+                        ) {
+                            if (isFetchingLocation) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = EspressoHeaderBg,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text("Auto-GPS", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
+
+                InteractiveLocationPinMap(
+                    currentLocation = activeLocation,
+                    isLoadingHardwareGps = isFetchingLocation,
+                    onRequestHardwareGps = {
+                        if (LocationHelper.hasLocationPermission(context)) {
+                            viewModel.autoFetchLocationAndPromptDoor(context, promptForHomeAddressAfterFetch = false)
+                        } else {
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
+                            )
+                        }
+                    },
+                    onLocationPinned = { loc ->
+                        pinnedLocation = loc
+                        streetArea = loc.streetArea
+                        landmark = loc.landmark
+                        if (loc.postalCode.isNotBlank()) {
+                            postalCode = loc.postalCode
+                        }
+                        if (flatHouse.isBlank() && loc.doorHint.isNotBlank()) {
+                            flatHouse = loc.doorHint
+                        }
+                    },
+                    pinTitle = "Search Street or Drag Gate Pin"
+                )
             }
         }
 
-        // Add New Door Address Form
+        // Add New Door Address Atelier Glass Form
         item {
-            Card(
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = false,
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 2)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,10 +301,10 @@ fun CustomerAddressesScreen(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("HOME", "OFFICE", "OTHER").forEach { lbl ->
-                            FilterChip(
+                            LiquidGlassPill(
+                                text = lbl,
                                 selected = label == lbl,
-                                onClick = { label = lbl },
-                                label = { Text(lbl) }
+                                onClick = { label = lbl }
                             )
                         }
                     }
@@ -288,20 +359,27 @@ fun CustomerAddressesScreen(
                         Checkbox(checked = isDefault, onCheckedChange = { isDefault = it })
                         Text("Set as default home visit address", style = MaterialTheme.typography.bodySmall)
                     }
+                    val canSave = !isBusy && flatHouse.isNotBlank() && streetArea.isNotBlank() && postalCode.length >= 4
                     Button(
                         onClick = {
-                            if (flatHouse.isNotBlank() && streetArea.isNotBlank() && postalCode.length >= 4) {
+                            if (canSave) {
+                                val fallbackLoc = LocationHelper.resolveBestFallbackLocationForText(
+                                    streetOrArea = streetArea,
+                                    postalCode = postalCode
+                                )
+                                val resolvedLat = activeLocation?.latitude?.takeIf { it != 0.0 } ?: fallbackLoc.latitude
+                                val resolvedLon = activeLocation?.longitude?.takeIf { it != 0.0 } ?: fallbackLoc.longitude
                                 viewModel.saveAddress(
                                     label = label,
                                     flatHouse = flatHouse,
                                     streetArea = streetArea,
-                                    landmark = landmark,
+                                    landmark = landmark.ifBlank { activeLocation?.landmark ?: fallbackLoc.landmark },
                                     postalCode = postalCode,
                                     accessInstructions = accessInstructions,
                                     isDefault = isDefault,
                                     areas = serviceAreas,
-                                    latitude = detectedLocation?.latitude ?: 0.0,
-                                    longitude = detectedLocation?.longitude ?: 0.0
+                                    latitude = resolvedLat,
+                                    longitude = resolvedLon
                                 )
                                 flatHouse = ""
                                 streetArea = ""
@@ -309,11 +387,16 @@ fun CustomerAddressesScreen(
                                 accessInstructions = ""
                             }
                         },
-                        enabled = !isBusy && flatHouse.isNotBlank() && streetArea.isNotBlank() && postalCode.length >= 4,
+                        enabled = canSave,
                         shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EspressoHeaderBg,
+                            contentColor = Color(0xFFFFDF9E)
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
+                            .tactilePressPhysics(enabled = canSave, enableHaptics = true)
                             .testTag("save_address_button")
                     ) {
                         Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -326,30 +409,36 @@ fun CustomerAddressesScreen(
 
         if (addresses.isEmpty()) {
             item {
-                EmptyStateCard(
-                    icon = Icons.Filled.LocationOn,
-                    title = "No Saved Door Addresses",
-                    subtitle = "Tap Auto-GPS above to detect your location and enter your particular door number."
-                )
+                Column(modifier = Modifier.widthIn(max = 600.dp)) {
+                    EmptyStateCard(
+                        icon = Icons.Filled.LocationOn,
+                        title = "No Saved Door Addresses",
+                        subtitle = "Tap Auto-GPS above to detect your location and enter your particular door number."
+                    )
+                }
             }
         } else {
             item {
                 Text(
                     text = "Saved Doorstep Locations (${addresses.size})",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .widthIn(max = 600.dp)
+                        .fillMaxWidth()
                 )
             }
-            items(addresses, key = { it.id }) { addr ->
-                Card(
+            itemsIndexed(addresses, key = { _, a -> a.id }) { idx, addr ->
+                LiquidGlassSurface(
+                    strength = if (addr.isDefault) GlassMaterialStrength.AccentEmerald else GlassMaterialStrength.AtelierCard,
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(
-                        1.dp,
-                        if (addr.isDefault) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                        else MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                    shadowElevation = 2.dp,
+                    interactivePhysics = true,
+                    modifier = Modifier
+                        .widthIn(max = 600.dp)
+                        .fillMaxWidth()
+                        .staggeredSpringEntrance(index = idx + 1)
+                        .testTag("saved_address_card_${addr.id}")
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -405,7 +494,9 @@ fun CustomerAddressesScreen(
                         }
                         IconButton(
                             onClick = { viewModel.deleteAddress(addr.id) },
-                            modifier = Modifier.size(48.dp)
+                            modifier = Modifier
+                                .size(48.dp)
+                                .tactilePressPhysics(pressedScale = 0.88f, enableHaptics = true)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.DeleteOutline,

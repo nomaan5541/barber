@@ -1,7 +1,10 @@
 package com.example
 
 import android.Manifest
+import android.app.Application
+import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -34,13 +38,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -61,6 +68,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -73,16 +82,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.data.model.PlatformConfig
 import com.example.data.model.UserAccount
-import com.example.data.repository.MarketplaceRepository
 import com.example.ui.admin.AdminBarbersManagementScreen
 import com.example.ui.admin.AdminBookingsAndDisputesScreen
 import com.example.ui.admin.AdminCatalogManagementScreen
 import com.example.ui.admin.AdminOverviewScreen
 import com.example.ui.admin.AdminPoliciesAndAuditScreen
 import com.example.ui.auth.AuthScreen
-import com.example.ui.auth.performSignOut
+import com.example.ui.auth.OnboardingProfileScreen
 import com.example.ui.barber.BarberDashboardScreen
 import com.example.ui.barber.BarberEarningsScreen
 import com.example.ui.barber.BarberJobDetailScreen
@@ -90,6 +97,7 @@ import com.example.ui.barber.BarberProfileScreen
 import com.example.ui.barber.BarberScheduleScreen
 import com.example.ui.components.DismissibleStatusBanner
 import com.example.ui.components.EmptyStateCard
+import com.example.ui.components.LegalPoliciesSheet
 import com.example.ui.customer.CustomerAddressesScreen
 import com.example.ui.customer.CustomerBookingFlowScreen
 import com.example.ui.customer.CustomerBookingStatusScreen
@@ -98,8 +106,6 @@ import com.example.ui.customer.CustomerFavouritesScreen
 import com.example.ui.customer.CustomerHomeScreen
 import com.example.ui.customer.CustomerProfileHelpScreen
 import com.example.ui.customer.DoorNumberSetupScreen
-import com.example.ui.customer.ProtectedRouteAuthGate
-import com.example.ui.customer.canonicalGroomingCatalog
 import com.example.ui.customer.mergeWithCanonicalCatalog
 import com.example.ui.glass.AmbientAtelierBackdrop
 import com.example.ui.glass.GlassMaterialStrength
@@ -117,20 +123,19 @@ import com.example.ui.navigation.navigateSingleTopTo
 import com.example.ui.theme.BrassGold
 import com.example.ui.theme.DoorCutTheme
 import com.example.ui.theme.EspressoHeaderBg
+import com.example.ui.theme.SageVerified
 import com.example.ui.viewmodel.ActivePortal
 import com.example.ui.viewmodel.MarketplaceViewModel
-import com.example.ui.viewmodel.UiState
 import com.example.util.DetectedDoorLocation
 import com.example.util.DoorCutNotificationHelper
 import com.example.util.LocationFetchResult
 import com.example.util.LocationHelper
 import com.example.util.PendingDoorAddressDraft
 import com.example.util.PhonePermissionsHelper
-import com.google.firebase.Firebase
+import com.example.data.firebase.DoorCutFirebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -155,9 +160,26 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
     awaitClose { removeAuthStateListener(listener) }
 }
 
+internal fun signOutDoorCutSession(
+    context: Context,
+    scope: CoroutineScope,
+    onSignedOut: () -> Unit = {}
+) {
+    DoorCutFirebase.auth().signOut()
+    scope.launch {
+        try {
+            CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+        } catch (e: Exception) {
+            Log.w("Auth", "Failed to clear credential state on sign-out: ${e.message}")
+        } finally {
+            onSignedOut()
+        }
+    }
+}
+
 @Composable
 fun DoorCutRootNavigation(
-    auth: FirebaseAuth = Firebase.auth,
+    auth: FirebaseAuth = DoorCutFirebase.auth(),
     requestLocationOnLaunch: Boolean = true
 ) {
     val context = LocalContext.current
@@ -169,8 +191,6 @@ fun DoorCutRootNavigation(
     var launchLocationError by remember { mutableStateOf<String?>(null) }
     var hasLocationPermissionState by remember { mutableStateOf(LocationHelper.hasLocationPermission(context)) }
     var hasRequestedLaunchPermission by rememberSaveable { mutableStateOf(false) }
-    var pendingDoorDraft by remember { mutableStateOf<PendingDoorAddressDraft?>(null) }
-    var guestSelectedServiceIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     fun triggerLaunchCoordinateFetch() {
         if (isLaunchFetchingLocation) return
@@ -224,23 +244,13 @@ fun DoorCutRootNavigation(
 
     val user = currentUser
     if (user == null) {
-        GuestNavigationHost(
-            launchLocation = launchLocation,
-            isLaunchFetchingLocation = isLaunchFetchingLocation,
-            hasLocationPermission = hasLocationPermissionState,
-            launchLocationError = launchLocationError,
-            pendingDoorDraft = pendingDoorDraft,
-            selectedServiceIds = guestSelectedServiceIds,
-            onToggleService = { id ->
-                guestSelectedServiceIds = if (guestSelectedServiceIds.contains(id)) {
-                    guestSelectedServiceIds - id
-                } else {
-                    guestSelectedServiceIds + id
+        // Strict Google Sign-In Entry Gate: No guest bypass
+        AuthScreen(
+            onSignedIn = {
+                if (LocationHelper.hasLocationPermission(context)) {
+                    triggerLaunchCoordinateFetch()
                 }
-            },
-            onEnsureService = { id -> guestSelectedServiceIds = guestSelectedServiceIds + id },
-            onRequestCoordinates = requestOrRefreshCoordinates,
-            onSaveDoorDraft = { pendingDoorDraft = it }
+            }
         )
     } else {
         AuthenticatedNavigationHost(
@@ -251,206 +261,8 @@ fun DoorCutRootNavigation(
             isLaunchFetchingLocation = isLaunchFetchingLocation,
             hasLocationPermission = hasLocationPermissionState,
             launchLocationError = launchLocationError,
-            pendingDoorDraft = pendingDoorDraft,
-            guestSelectedServiceIds = guestSelectedServiceIds,
-            onRequestLaunchCoordinates = requestOrRefreshCoordinates,
-            onConsumePendingDoorDraft = { pendingDoorDraft = null },
-            onConsumeGuestSelections = { guestSelectedServiceIds = emptySet() }
+            onRequestLaunchCoordinates = requestOrRefreshCoordinates
         )
-    }
-}
-
-@Composable
-private fun GuestNavigationHost(
-    launchLocation: DetectedDoorLocation?,
-    isLaunchFetchingLocation: Boolean,
-    hasLocationPermission: Boolean,
-    launchLocationError: String?,
-    pendingDoorDraft: PendingDoorAddressDraft?,
-    selectedServiceIds: Set<String>,
-    onToggleService: (String) -> Unit,
-    onEnsureService: (String) -> Unit,
-    onRequestCoordinates: () -> Unit,
-    onSaveDoorDraft: (PendingDoorAddressDraft) -> Unit
-) {
-    val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: AppRoutes.ROUTE_CUSTOMER_HOME
-    val services = remember { canonicalGroomingCatalog() }
-    var guestBarberId by remember { mutableStateOf<String?>(null) }
-    var guestDateKey by remember { mutableStateOf(MarketplaceViewModel.defaultTodayDateKey()) }
-    var guestStartHour by remember { mutableStateOf<Long?>(null) }
-
-    val hideChrome = currentRoute in setOf(
-        AppRoutes.ROUTE_BOOKING_FLOW,
-        AppRoutes.ROUTE_DOOR_SETUP,
-        AppRoutes.ROUTE_AUTH
-    )
-
-    val reducedMotion = LocalReducedMotion.current
-    DoorCutScaffoldChrome(
-        portalSubtitle = "CUSTOMER MODE",
-        showChrome = !hideChrome,
-        currentRoute = currentRoute,
-        navTabs = customerNavTabs,
-        onSelectTab = { navController.navigateSingleTopTo(it) },
-        topBarActions = {
-            TextButton(
-                onClick = { navController.navigate(AppRoutes.ROUTE_AUTH) },
-                modifier = Modifier
-                    .height(48.dp)
-                    .padding(end = 8.dp)
-                    .tactilePressPhysics(pressedScale = 0.95f)
-                    .testTag("top_bar_sign_in_button")
-            ) {
-                Text(
-                    text = stringResource(R.string.btn_sign_in_short),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    ) {
-        NavHost(
-            navController = navController,
-            startDestination = AppRoutes.ROUTE_CUSTOMER_HOME,
-            enterTransition = {
-                fadeIn(tween(180)) + scaleIn(
-                    initialScale = if (reducedMotion) 1f else 0.985f,
-                    animationSpec = DoorCutMotionSpecs.surfaceSettleSpring(reducedMotion)
-                )
-            },
-            exitTransition = { fadeOut(tween(130)) },
-            popEnterTransition = {
-                fadeIn(tween(170)) + scaleIn(
-                    initialScale = if (reducedMotion) 1f else 0.985f,
-                    animationSpec = DoorCutMotionSpecs.surfaceSettleSpring(reducedMotion)
-                )
-            },
-            popExitTransition = { fadeOut(tween(120)) },
-            modifier = Modifier.fillMaxSize()
-        ) {
-            composable(AppRoutes.ROUTE_CUSTOMER_HOME) {
-                CustomerHomeScreen(
-                    services = services,
-                    selectedServiceIds = selectedServiceIds,
-                    upcomingBooking = null,
-                    savedAddresses = emptyList(),
-                    detectedLocation = launchLocation,
-                    pendingDoorDraft = pendingDoorDraft,
-                    isFetchingLocation = isLaunchFetchingLocation,
-                    onToggleService = onToggleService,
-                    onStartBookingFlow = { navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW) },
-                    onOpenLocationSelector = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
-                    onRefreshGps = onRequestCoordinates,
-                    onOpenBookingStatus = {}
-                )
-            }
-
-            composable(AppRoutes.ROUTE_BOOKING_FLOW) {
-                CustomerBookingFlowScreen(
-                    isAuthenticated = false,
-                    customerName = "Guest",
-                    customerPhone = "",
-                    services = services,
-                    approvedBarbers = emptyList(),
-                    savedAddresses = emptyList(),
-                    serviceAreas = emptyList(),
-                    slotLocks = emptyList(),
-                    platformConfig = PlatformConfig(),
-                    selectedServiceIds = selectedServiceIds,
-                    selectedBarberId = guestBarberId,
-                    selectedAddressId = null,
-                    selectedDateKey = guestDateKey,
-                    selectedStartHour = guestStartHour,
-                    detectedLocation = launchLocation,
-                    pendingDoorDraft = pendingDoorDraft,
-                    isFetchingLocation = isLaunchFetchingLocation,
-                    isBusy = false,
-                    onToggleService = onToggleService,
-                    onSelectBarber = { guestBarberId = it },
-                    onSelectDate = { guestDateKey = it },
-                    onSelectHour = { guestStartHour = it },
-                    onSelectAddress = {},
-                    onSaveAddressForAuthenticated = {},
-                    onSaveDraftForGuest = onSaveDoorDraft,
-                    onRequestGps = onRequestCoordinates,
-                    onConfirmBooking = { _, _, _, _ -> navController.navigate(AppRoutes.ROUTE_AUTH) },
-                    onExitFlow = { navController.popBackStack() }
-                )
-            }
-
-            composable(AppRoutes.ROUTE_BOOKINGS) {
-                ProtectedRouteAuthGate(
-                    title = stringResource(R.string.bookings_signin_gate_title),
-                    subtitle = stringResource(R.string.bookings_signin_gate_subtitle),
-                    onAuthSuccess = {}
-                )
-            }
-
-            composable(AppRoutes.ROUTE_FAVOURITES) {
-                CustomerFavouritesScreen(
-                    services = services,
-                    approvedBarbers = emptyList(),
-                    onQuickBookService = { svc ->
-                        onEnsureService(svc.id)
-                        navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW)
-                    },
-                    onQuickBookBarber = { barber ->
-                        guestBarberId = barber.barberId
-                        navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW)
-                    },
-                    onBrowseHome = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CUSTOMER_HOME) }
-                )
-            }
-
-            composable(AppRoutes.ROUTE_PROFILE) {
-                CustomerProfileHelpScreen(
-                    isAuthenticated = false,
-                    userAccount = null,
-                    savedAddresses = emptyList(),
-                    tickets = emptyList(),
-                    platformConfig = PlatformConfig(),
-                    isBusy = false,
-                    onSignInClick = { navController.navigate(AppRoutes.ROUTE_AUTH) },
-                    onUpdateProfile = { _, _ -> },
-                    onManageAddresses = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
-                    onCreateSupportTicket = { _, _ -> },
-                    onSwitchToBarberMode = { navController.navigate(AppRoutes.ROUTE_AUTH) },
-                    onSwitchToAdminMode = { navController.navigate(AppRoutes.ROUTE_AUTH) },
-                    onSignOut = {}
-                )
-            }
-
-            composable(AppRoutes.ROUTE_DOOR_SETUP) {
-                BackHandler { navController.popBackStack() }
-                DoorNumberSetupScreen(
-                    detectedLocation = launchLocation,
-                    isFetchingLocation = isLaunchFetchingLocation,
-                    hasLocationPermission = hasLocationPermission,
-                    locationErrorMessage = launchLocationError,
-                    initialDraft = pendingDoorDraft,
-                    allowDismiss = true,
-                    primaryButtonLabel = stringResource(R.string.door_btn_confirm_save),
-                    onRequestDetectCoordinates = onRequestCoordinates,
-                    onConfirmDoorAddress = { draft ->
-                        onSaveDoorDraft(draft)
-                        navController.popBackStack()
-                    },
-                    onSkipOrClose = { navController.popBackStack() }
-                )
-            }
-
-            composable(AppRoutes.ROUTE_AUTH) {
-                BackHandler { navController.popBackStack() }
-                AuthScreen(
-                    onAuthSuccess = {},
-                    detectedLocation = launchLocation,
-                    pendingDoorDraft = pendingDoorDraft,
-                    onOpenDoorSetup = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) }
-                )
-            }
-        }
     }
 }
 
@@ -463,88 +275,94 @@ private fun AuthenticatedNavigationHost(
     isLaunchFetchingLocation: Boolean,
     hasLocationPermission: Boolean,
     launchLocationError: String?,
-    pendingDoorDraft: PendingDoorAddressDraft?,
-    guestSelectedServiceIds: Set<String>,
-    onRequestLaunchCoordinates: () -> Unit,
-    onConsumePendingDoorDraft: () -> Unit,
-    onConsumeGuestSelections: () -> Unit
+    onRequestLaunchCoordinates: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val navController: NavHostController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: AppRoutes.ROUTE_CUSTOMER_HOME
 
     val viewModel: MarketplaceViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
             initializer {
-                val app = checkNotNull(this[APPLICATION_KEY]) { "APPLICATION_KEY missing" }
-                val databaseId = app.getString(R.string.firestore_database_id)
-                MarketplaceViewModel(
-                    repository = MarketplaceRepository(FirebaseFirestore.getInstance(databaseId)),
-                    currentUserId = currentUserId,
-                    initialDisplayName = displayName,
-                    initialEmail = email
-                )
+                val app = checkNotNull(this[APPLICATION_KEY]) { "APPLICATION_KEY missing" } as Application
+                MarketplaceViewModel(app)
             }
         }
     )
 
-    val accountState by viewModel.userAccountState.collectAsStateWithLifecycle()
-    val statusBanner by viewModel.statusBanner.collectAsStateWithLifecycle()
-    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
-    val portalOverride by viewModel.selectedPortalOverride.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showTopPoliciesSheet by remember { mutableStateOf(false) }
 
-    val activeServicesState by viewModel.activeServicesState.collectAsStateWithLifecycle()
-    val serviceAreas by viewModel.serviceAreasState.collectAsStateWithLifecycle()
-    val platformConfig by viewModel.platformConfigState.collectAsStateWithLifecycle()
-    val approvedBarbers by viewModel.approvedBarbersState.collectAsStateWithLifecycle()
-    val ownBarberProfile by viewModel.ownBarberProfileState.collectAsStateWithLifecycle()
-    val customerAddresses by viewModel.customerAddressesState.collectAsStateWithLifecycle()
-    val slotLocks by viewModel.activeSlotLocksState.collectAsStateWithLifecycle()
-    val customerBookings by viewModel.customerBookingsState.collectAsStateWithLifecycle()
-    val barberBookings by viewModel.barberBookingsState.collectAsStateWithLifecycle()
-    val protectedAddresses by viewModel.protectedAddresses.collectAsStateWithLifecycle()
-    val myTickets by viewModel.myTicketsState.collectAsStateWithLifecycle()
+    LaunchedEffect(launchLocation) {
+        viewModel.seedInitialLocation(launchLocation)
+    }
 
-    val selectedServiceIds by viewModel.selectedServiceIds.collectAsStateWithLifecycle()
-    val selectedBarberId by viewModel.selectedBarberId.collectAsStateWithLifecycle()
-    val selectedAddressId by viewModel.selectedAddressId.collectAsStateWithLifecycle()
-    val selectedDateKey by viewModel.selectedDateKey.collectAsStateWithLifecycle()
-    val selectedStartHour by viewModel.selectedStartHour.collectAsStateWithLifecycle()
-
-    val vmDetectedLocation by viewModel.detectedLocation.collectAsStateWithLifecycle()
-    val vmIsFetchingLocation by viewModel.isFetchingLocation.collectAsStateWithLifecycle()
-    val vmLocationError by viewModel.locationErrorMessage.collectAsStateWithLifecycle()
-
-    val adminAllServices by viewModel.adminAllServicesState.collectAsStateWithLifecycle()
-    val adminAllBarbers by viewModel.adminAllBarbersState.collectAsStateWithLifecycle()
-    val adminAllBookings by viewModel.adminAllBookingsState.collectAsStateWithLifecycle()
-    val adminAllUsers by viewModel.adminAllUsersState.collectAsStateWithLifecycle()
-    val adminAllTickets by viewModel.adminAllTicketsState.collectAsStateWithLifecycle()
-    val adminAuditLogs by viewModel.adminAuditLogsState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(launchLocation) { viewModel.seedInitialLocation(launchLocation) }
-    LaunchedEffect(guestSelectedServiceIds) {
-        if (guestSelectedServiceIds.isNotEmpty()) {
-            guestSelectedServiceIds.forEach { viewModel.ensureServiceSelected(it) }
-            onConsumeGuestSelections()
+    // 1. Wait briefly while verified Firestore account profile loads after Google Sign-In
+    if (uiState.isLoadingAuth && uiState.userAccount == null) {
+        AmbientAtelierBackdrop {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = "Verifying your DoorCut account…",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
         }
-    }
-    LaunchedEffect(pendingDoorDraft, serviceAreas) {
-        val draft = pendingDoorDraft ?: return@LaunchedEffect
-        viewModel.savePendingDoorDraft(draft = draft, areas = serviceAreas)
-        onConsumePendingDoorDraft()
+        return
     }
 
-    val userAccount = (accountState as? UiState.Success)?.data ?: UserAccount(
+    // 2. Mandatory Post-Google-Sign-In Onboarding (Role: Customer vs Barber, Name, DOB, Age, Gender, Phone, Privacy Consent)
+    if (uiState.requiresOnboarding) {
+        OnboardingProfileScreen(
+            initialName = uiState.userAccount?.name?.ifBlank { displayName } ?: displayName,
+            initialEmail = uiState.userAccount?.email?.ifBlank { email } ?: email,
+            initialPhone = uiState.userAccount?.phone.orEmpty(),
+            detectedLocality = (uiState.detectedLocation ?: launchLocation)?.localityName.orEmpty(),
+            isBusy = uiState.isBusy,
+            onCompleteOnboarding = { fullName, phone, dob, age, gender, selectedRole, servesLadies, servesMen, expYears, upiId, primaryArea ->
+                viewModel.completeOnboarding(
+                    fullName = fullName,
+                    phone = phone,
+                    dob = dob,
+                    age = age,
+                    gender = gender,
+                    selectedRole = selectedRole,
+                    servesLadies = servesLadies,
+                    servesMen = servesMen,
+                    experienceYears = expYears,
+                    upiId = upiId,
+                    primaryArea = primaryArea
+                )
+            },
+            onSignOut = {
+                signOutDoorCutSession(context = context, scope = scope) {
+                    viewModel.signOut()
+                }
+            }
+        )
+        return
+    }
+
+    val userAccount = uiState.userAccount ?: UserAccount(
         id = currentUserId,
         userId = currentUserId,
         name = displayName,
         email = email,
         role = "CUSTOMER",
-        status = "ACTIVE"
+        status = "ACTIVE",
+        onboardingCompleted = true
     )
 
     if (userAccount.status == "SUSPENDED") {
@@ -565,10 +383,21 @@ private fun AuthenticatedNavigationHost(
         return
     }
 
-    val currentPortal = portalOverride ?: when (userAccount.role) {
+    // 3. Dedicated Role-Locked Experience (Customer -> Customer Portal, Barber -> Barber Portal, Admin -> Admin Portal)
+    val currentPortal = when (userAccount.role) {
+        "ADMIN" -> uiState.activePortal
         "BARBER" -> ActivePortal.BARBER
         else -> ActivePortal.CUSTOMER
     }
+
+    val navController: NavHostController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val startDestination = when (currentPortal) {
+        ActivePortal.BARBER -> AppRoutes.ROUTE_BARBER_HOME
+        ActivePortal.ADMIN -> AppRoutes.ROUTE_ADMIN_OVERVIEW
+        ActivePortal.CUSTOMER -> AppRoutes.ROUTE_CUSTOMER_HOME
+    }
+    val currentRoute = navBackStackEntry?.destination?.route ?: startDestination
 
     val activeTabs = when (currentPortal) {
         ActivePortal.CUSTOMER -> customerNavTabs
@@ -577,9 +406,9 @@ private fun AuthenticatedNavigationHost(
     }
 
     val portalSubtitle = when (currentPortal) {
-        ActivePortal.CUSTOMER -> "CUSTOMER MODE"
-        ActivePortal.BARBER -> "BARBER MODE"
-        ActivePortal.ADMIN -> "ADMIN DASHBOARD"
+        ActivePortal.CUSTOMER -> "HOME GROOMING · CUSTOMER"
+        ActivePortal.BARBER -> "DISPATCH CONSOLE · BARBER PARTNER"
+        ActivePortal.ADMIN -> "GOVERNANCE · ADMIN CONSOLE"
     }
 
     val hideChrome = currentRoute in setOf(
@@ -589,14 +418,17 @@ private fun AuthenticatedNavigationHost(
         AppRoutes.ROUTE_DOOR_SETUP
     )
 
-    val catalogList = remember(activeServicesState) {
-        mergeWithCanonicalCatalog((activeServicesState as? UiState.Success)?.data ?: emptyList())
+    val catalogList = remember(uiState.services) {
+        mergeWithCanonicalCatalog(uiState.services)
     }
-    val nextCustomerBooking = remember(customerBookings) {
-        customerBookings.filter { it.isUpcoming() }
+    val nextCustomerBooking = remember(uiState.customerBookings) {
+        uiState.customerBookings.filter { it.isUpcoming() }
             .sortedWith(compareBy({ it.dateKey }, { it.startHour }))
             .firstOrNull()
     }
+
+    val effectiveLocation = uiState.detectedLocation ?: launchLocation
+    val effectiveIsFetchingLoc = uiState.isFetchingLocation || isLaunchFetchingLocation
 
     val reducedMotion = LocalReducedMotion.current
     DoorCutScaffoldChrome(
@@ -605,40 +437,40 @@ private fun AuthenticatedNavigationHost(
         currentRoute = currentRoute,
         navTabs = activeTabs,
         onSelectTab = { navController.navigateSingleTopTo(it) },
-        statusBanner = statusBanner,
-        onDismissBanner = { viewModel.clearBanner() },
+        statusBanner = uiState.snackbarMessage,
+        onDismissBanner = { viewModel.clearSnackbar() },
         topBarActions = {
-            LiquidGlassSurface(
-                strength = GlassMaterialStrength.ChromeBar,
-                shape = RoundedCornerShape(50),
-                shadowElevation = 1.dp,
-                interactivePhysics = false,
-                modifier = Modifier.padding(end = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            if (userAccount.role == "ADMIN") {
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.ChromeBar,
+                    shape = RoundedCornerShape(50),
+                    shadowElevation = 1.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier.padding(end = 6.dp)
                 ) {
-                    PortalSwitchPill(
-                        label = "Customer",
-                        selected = currentPortal == ActivePortal.CUSTOMER,
-                        onClick = {
-                            viewModel.switchPortal(ActivePortal.CUSTOMER)
-                            navController.navigateSingleTopTo(AppRoutes.ROUTE_CUSTOMER_HOME)
-                        },
-                        modifier = Modifier.testTag("portal_switch_customer")
-                    )
-                    PortalSwitchPill(
-                        label = "Barber",
-                        selected = currentPortal == ActivePortal.BARBER,
-                        onClick = {
-                            viewModel.switchPortal(ActivePortal.BARBER)
-                            navController.navigateSingleTopTo(AppRoutes.ROUTE_BARBER_HOME)
-                        },
-                        modifier = Modifier.testTag("portal_switch_barber")
-                    )
-                    if (userAccount.role == "ADMIN") {
+                    Row(
+                        modifier = Modifier.padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PortalSwitchPill(
+                            label = "Customer",
+                            selected = currentPortal == ActivePortal.CUSTOMER,
+                            onClick = {
+                                viewModel.switchPortal(ActivePortal.CUSTOMER)
+                                navController.navigateSingleTopTo(AppRoutes.ROUTE_CUSTOMER_HOME)
+                            },
+                            modifier = Modifier.testTag("portal_switch_customer")
+                        )
+                        PortalSwitchPill(
+                            label = "Barber",
+                            selected = currentPortal == ActivePortal.BARBER,
+                            onClick = {
+                                viewModel.switchPortal(ActivePortal.BARBER)
+                                navController.navigateSingleTopTo(AppRoutes.ROUTE_BARBER_HOME)
+                            },
+                            modifier = Modifier.testTag("portal_switch_barber")
+                        )
                         PortalSwitchPill(
                             label = "Admin",
                             selected = currentPortal == ActivePortal.ADMIN,
@@ -650,12 +482,54 @@ private fun AuthenticatedNavigationHost(
                         )
                     }
                 }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = 6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = EspressoHeaderBg,
+                        border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.55f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.VerifiedUser,
+                                contentDescription = null,
+                                tint = if (currentPortal == ActivePortal.BARBER) SageVerified else BrassGold,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (currentPortal == ActivePortal.BARBER) "Partner" else "Verified",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFDF9E)
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { showTopPoliciesSheet = true },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("top_bar_policies_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Policy,
+                            contentDescription = "Privacy Policy & Safety Charter",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
         }
     ) {
         NavHost(
             navController = navController,
-            startDestination = if (currentPortal == ActivePortal.BARBER) AppRoutes.ROUTE_BARBER_HOME else AppRoutes.ROUTE_CUSTOMER_HOME,
+            startDestination = startDestination,
             enterTransition = {
                 fadeIn(tween(180)) + scaleIn(
                     initialScale = if (reducedMotion) 1f else 0.985f,
@@ -672,22 +546,22 @@ private fun AuthenticatedNavigationHost(
             popExitTransition = { fadeOut(tween(120)) },
             modifier = Modifier.fillMaxSize()
         ) {
-            // --- CUSTOMER MODE (4 Bottom Tabs + Guided Sub-Routes) ---
+            // --- CUSTOMER PORTAL ---
             composable(AppRoutes.ROUTE_CUSTOMER_HOME) {
                 CustomerHomeScreen(
                     services = catalogList,
-                    selectedServiceIds = selectedServiceIds,
+                    selectedServiceIds = uiState.selectedServiceIds,
                     upcomingBooking = nextCustomerBooking,
-                    savedAddresses = customerAddresses,
-                    detectedLocation = vmDetectedLocation ?: launchLocation,
-                    pendingDoorDraft = pendingDoorDraft,
-                    isFetchingLocation = vmIsFetchingLocation || isLaunchFetchingLocation,
-                    onToggleService = { viewModel.toggleServiceSelection(it) },
+                    savedAddresses = uiState.savedAddresses,
+                    detectedLocation = effectiveLocation,
+                    pendingDoorDraft = uiState.pendingDoorDraft,
+                    isFetchingLocation = effectiveIsFetchingLoc,
+                    onToggleService = { viewModel.toggleServiceInCart(it) },
                     onStartBookingFlow = { navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW) },
                     onOpenLocationSelector = { navController.navigate(AppRoutes.ROUTE_DOOR_SETUP) },
                     onRefreshGps = {
                         if (LocationHelper.hasLocationPermission(context)) {
-                            viewModel.autoFetchLocationAndPromptDoor(context, promptForHomeAddressAfterFetch = false)
+                            viewModel.autoFetchDeviceLocation(silent = false)
                         } else {
                             onRequestLaunchCoordinates()
                         }
@@ -704,65 +578,64 @@ private fun AuthenticatedNavigationHost(
                     customerName = userAccount.name.ifBlank { displayName },
                     customerPhone = userAccount.phone,
                     services = catalogList,
-                    approvedBarbers = approvedBarbers,
-                    savedAddresses = customerAddresses,
-                    serviceAreas = serviceAreas,
-                    slotLocks = slotLocks,
-                    platformConfig = platformConfig,
-                    selectedServiceIds = selectedServiceIds,
-                    selectedBarberId = selectedBarberId,
-                    selectedAddressId = selectedAddressId,
-                    selectedDateKey = selectedDateKey,
-                    selectedStartHour = selectedStartHour,
-                    detectedLocation = vmDetectedLocation ?: launchLocation,
-                    pendingDoorDraft = pendingDoorDraft,
-                    isFetchingLocation = vmIsFetchingLocation || isLaunchFetchingLocation,
-                    isBusy = isBusy,
-                    onToggleService = { viewModel.toggleServiceSelection(it) },
-                    onSelectBarber = { viewModel.selectBarber(it) },
-                    onSelectDate = { viewModel.selectDate(it) },
-                    onSelectHour = { viewModel.selectStartHour(it) },
-                    onSelectAddress = { viewModel.selectAddress(it) },
-                    onSaveAddressForAuthenticated = { draft ->
-                        viewModel.savePendingDoorDraft(draft = draft, areas = serviceAreas)
+                    savedAddresses = uiState.savedAddresses,
+                    serviceAreas = uiState.serviceAreas,
+                    platformConfig = uiState.platformConfig,
+                    selectedServiceIds = uiState.selectedServiceIds,
+                    selectedAddressId = uiState.selectedAddressId,
+                    selectedDateKey = uiState.selectedDateKey,
+                    selectedStartHour = uiState.selectedStartHour,
+                    bookingMode = uiState.bookingMode,
+                    recipientGender = uiState.bookingRecipientGender,
+                    recipientAge = uiState.bookingRecipientAge,
+                    preferLadyBarber = uiState.preferLadyBarber,
+                    detectedLocation = effectiveLocation,
+                    pendingDoorDraft = uiState.pendingDoorDraft,
+                    isFetchingLocation = effectiveIsFetchingLoc,
+                    isBusy = uiState.isBusy,
+                    onToggleService = { viewModel.toggleServiceInCart(it) },
+                    onSelectDate = { dateKey ->
+                        viewModel.setBookingDateAndHour(dateKey, uiState.selectedStartHour)
                     },
-                    onSaveDraftForGuest = {},
+                    onSelectHour = { hour ->
+                        if (hour != null) {
+                            viewModel.setBookingDateAndHour(uiState.selectedDateKey, hour)
+                        }
+                    },
+                    onSetBookingMode = { mode -> viewModel.setBookingMode(mode) },
+                    onUpdateRecipientPreferences = { gender, age, preferLady ->
+                        viewModel.setRecipientPreferences(gender, age, preferLady)
+                    },
+                    onSelectAddress = { addrId ->
+                        if (addrId != null) viewModel.selectAddress(addrId)
+                    },
+                    onSaveAddressForAuthenticated = { draft ->
+                        viewModel.confirmDoorAddressSetup(draft)
+                    },
                     onRequestGps = {
                         if (LocationHelper.hasLocationPermission(context)) {
-                            viewModel.autoFetchLocationAndPromptDoor(context, promptForHomeAddressAfterFetch = false)
+                            viewModel.autoFetchDeviceLocation(silent = false)
                         } else {
                             onRequestLaunchCoordinates()
                         }
                     },
-                    onConfirmBooking = { barber, addr, bookingFeePaise, notes ->
-                        val chosenServices = catalogList.filter { selectedServiceIds.contains(it.id) }
-                        val areaTravel = serviceAreas.firstOrNull { it.id == addr.serviceAreaId }?.travelChargePaise ?: 0L
-                        val hour = selectedStartHour ?: 10L
-                        viewModel.confirmCustomerBooking(
-                            customerName = userAccount.name.ifBlank { displayName },
-                            customerPhone = userAccount.phone.ifBlank { "+919876543210" },
-                            barber = barber,
-                            selectedServices = chosenServices,
-                            address = addr,
-                            travelChargePaise = areaTravel,
-                            platformBookingFeePaise = bookingFeePaise,
-                            barberCommissionPaise = viewModel.calculateBarberCommissionPaise(
-                                chosenServices.sumOf { it.pricePaise } + areaTravel,
-                                platformConfig
-                            ),
-                            dateKey = selectedDateKey,
-                            startHour = hour,
+                    onConfirmOpenDispatchBooking = { addr, _, contactPhone, notes ->
+                        if (addr.id.isNotBlank()) {
+                            viewModel.selectAddress(addr.id)
+                        }
+                        viewModel.confirmOpenDispatchBooking(
+                            customerPhone = contactPhone,
                             customerNotes = notes,
-                            policySnapshot = platformConfig.policyText,
                             bookingFeeTxRef = "BFEE-${System.currentTimeMillis() % 100000}",
-                            onSuccess = { newBookingId ->
+                            onBookingCreated = { newBookingId ->
                                 navController.navigate(AppRoutes.bookingStatusRoute(newBookingId)) {
                                     popUpTo(AppRoutes.ROUTE_CUSTOMER_HOME)
                                 }
                             }
                         )
                     },
-                    onExitFlow = { navController.popBackStack() }
+                    onExitFlow = { navController.popBackStack() },
+                    onLocationPinned = { pinned -> viewModel.updatePinnedLocation(pinned) }
                 )
             }
 
@@ -771,18 +644,18 @@ private fun AuthenticatedNavigationHost(
                 arguments = listOf(navArgument("bookingId") { type = NavType.StringType })
             ) { entry ->
                 val bookingId = entry.arguments?.getString("bookingId").orEmpty()
-                val targetBooking = customerBookings.firstOrNull { it.id == bookingId }
-                val targetBarber = approvedBarbers.firstOrNull { it.barberId == targetBooking?.barberId }
+                val targetBooking = uiState.customerBookings.firstOrNull { it.id == bookingId }
+                val targetBarber = uiState.approvedBarbers.firstOrNull { it.barberId == targetBooking?.barberId }
                 CustomerBookingStatusScreen(
                     booking = targetBooking,
                     barberProfile = targetBarber,
-                    protectedAddress = protectedAddresses[bookingId],
-                    platformConfig = platformConfig,
-                    isBusy = isBusy,
-                    onLoadProtectedAddress = { viewModel.loadProtectedAddress(it) },
-                    onApproveExtraService = { b, approve -> viewModel.customerRespondExtraService(b, approve) },
-                    onConfirmDirectPayment = { id, ok, reason -> viewModel.customerVerifyDirectPayment(id, ok, reason) },
-                    onCancelBooking = { b, reason -> viewModel.customerCancelBooking(b, reason) },
+                    protectedAddress = uiState.unlockedAddresses[bookingId],
+                    platformConfig = uiState.platformConfig,
+                    isBusy = uiState.isBusy,
+                    onLoadProtectedAddress = { viewModel.loadProtectedAddressForJob(it) },
+                    onApproveExtraService = { b, approve -> viewModel.respondToExtraServiceRequest(b, approve) },
+                    onConfirmDirectPayment = { id, ok, _ -> viewModel.confirmOrDisputeDirectPayment(id, ok) },
+                    onCancelBooking = { b, reason -> viewModel.cancelBooking(b, reason) },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -790,15 +663,16 @@ private fun AuthenticatedNavigationHost(
             composable(AppRoutes.ROUTE_BOOKINGS) {
                 CustomerBookingsScreen(
                     customerName = userAccount.name.ifBlank { displayName },
-                    bookings = customerBookings,
-                    isBusy = isBusy,
+                    bookings = uiState.customerBookings,
+                    isBusy = uiState.isBusy,
                     onOpenBookingStatus = { navController.navigate(AppRoutes.bookingStatusRoute(it)) },
                     onBookAgain = { prev ->
-                        viewModel.repeatBooking(prev)
-                        navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW)
+                        viewModel.repeatCompletedBooking(prev) {
+                            navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW)
+                        }
                     },
                     onSubmitReview = { b, stars, comment ->
-                        viewModel.submitReview(b, userAccount.name.ifBlank { displayName }, stars, comment)
+                        viewModel.submitReview(b, stars.toInt(), comment)
                     },
                     onStartNewBooking = { navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW) }
                 )
@@ -807,13 +681,10 @@ private fun AuthenticatedNavigationHost(
             composable(AppRoutes.ROUTE_FAVOURITES) {
                 CustomerFavouritesScreen(
                     services = catalogList,
-                    approvedBarbers = approvedBarbers,
                     onQuickBookService = { svc ->
-                        viewModel.ensureServiceSelected(svc.id)
-                        navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW)
-                    },
-                    onQuickBookBarber = { barber ->
-                        viewModel.selectBarber(barber.barberId)
+                        if (!uiState.selectedServiceIds.contains(svc.id)) {
+                            viewModel.toggleServiceInCart(svc.id)
+                        }
                         navController.navigate(AppRoutes.ROUTE_BOOKING_FLOW)
                     },
                     onBrowseHome = { navController.navigateSingleTopTo(AppRoutes.ROUTE_CUSTOMER_HOME) }
@@ -824,25 +695,25 @@ private fun AuthenticatedNavigationHost(
                 CustomerProfileHelpScreen(
                     isAuthenticated = true,
                     userAccount = userAccount,
-                    savedAddresses = customerAddresses,
-                    tickets = myTickets,
-                    platformConfig = platformConfig,
-                    isBusy = isBusy,
+                    savedAddresses = uiState.savedAddresses,
+                    tickets = uiState.supportTickets,
+                    platformConfig = uiState.platformConfig,
+                    isBusy = uiState.isBusy,
                     onSignInClick = {},
-                    onUpdateProfile = { name, phone -> viewModel.updateProfile(name, phone) },
+                    onUpdateProfile = { name, phone -> viewModel.updateProfileContact(name, phone) },
                     onManageAddresses = { navController.navigate(AppRoutes.ROUTE_ADDRESSES) },
                     onCreateSupportTicket = { subj, desc ->
-                        viewModel.createSupportTicket("CUSTOMER", "", "GENERAL", subj, desc)
-                    },
-                    onSwitchToBarberMode = {
-                        viewModel.switchPortal(ActivePortal.BARBER)
-                        navController.navigateSingleTopTo(AppRoutes.ROUTE_BARBER_HOME)
+                        viewModel.raiseSupportTicket("CUSTOMER", "", "GENERAL", subj, desc)
                     },
                     onSwitchToAdminMode = {
                         viewModel.switchPortal(ActivePortal.ADMIN)
                         navController.navigateSingleTopTo(AppRoutes.ROUTE_ADMIN_OVERVIEW)
                     },
-                    onSignOut = { performSignOut(context = context, onSignOutComplete = {}, scope = scope) }
+                    onSignOut = {
+                        signOutDoorCutSession(context = context, scope = scope) {
+                            viewModel.signOut()
+                        }
+                    }
                 )
             }
 
@@ -850,15 +721,15 @@ private fun AuthenticatedNavigationHost(
                 BackHandler { navController.popBackStack() }
                 CustomerAddressesScreen(
                     viewModel = viewModel,
-                    addresses = customerAddresses,
-                    serviceAreas = serviceAreas,
-                    isBusy = isBusy
+                    addresses = uiState.savedAddresses,
+                    serviceAreas = uiState.serviceAreas,
+                    isBusy = uiState.isBusy
                 )
             }
 
             composable(AppRoutes.ROUTE_DOOR_SETUP) {
                 BackHandler { navController.popBackStack() }
-                val defaultAddr = customerAddresses.firstOrNull { it.isDefault } ?: customerAddresses.firstOrNull()
+                val defaultAddr = uiState.savedAddresses.firstOrNull { it.isDefault } ?: uiState.savedAddresses.firstOrNull()
                 val seededDraft = remember(defaultAddr) {
                     defaultAddr?.let {
                         PendingDoorAddressDraft(
@@ -874,53 +745,95 @@ private fun AuthenticatedNavigationHost(
                     }
                 }
                 DoorNumberSetupScreen(
-                    detectedLocation = vmDetectedLocation ?: launchLocation,
-                    isFetchingLocation = vmIsFetchingLocation || isLaunchFetchingLocation,
+                    detectedLocation = effectiveLocation,
+                    isFetchingLocation = effectiveIsFetchingLoc,
                     hasLocationPermission = hasLocationPermission || LocationHelper.hasLocationPermission(context),
-                    locationErrorMessage = vmLocationError ?: launchLocationError,
+                    locationErrorMessage = uiState.locationStatusMessage ?: launchLocationError,
                     initialDraft = seededDraft,
-                    isBusy = isBusy,
+                    isBusy = uiState.isBusy,
                     allowDismiss = true,
                     onRequestDetectCoordinates = {
                         if (LocationHelper.hasLocationPermission(context)) {
-                            viewModel.autoFetchLocationAndPromptDoor(context, promptForHomeAddressAfterFetch = false)
+                            viewModel.autoFetchDeviceLocation(silent = false)
                         } else {
                             onRequestLaunchCoordinates()
                         }
                     },
                     onConfirmDoorAddress = { draft ->
-                        viewModel.savePendingDoorDraft(draft = draft, areas = serviceAreas)
-                        navController.popBackStack()
+                        viewModel.confirmDoorAddressSetup(draft) {
+                            navController.popBackStack()
+                        }
                     },
-                    onSkipOrClose = { navController.popBackStack() }
+                    onSkipOrClose = { navController.popBackStack() },
+                    onLocationPinned = { pinned -> viewModel.updatePinnedLocation(pinned) }
                 )
             }
 
-            // --- BARBER MODE (4 Bottom Tabs + Guided Job Detail Route) ---
+            // --- BARBER PARTNER PORTAL ---
             composable(AppRoutes.ROUTE_BARBER_HOME) {
                 BarberDashboardScreen(
-                    barberProfile = ownBarberProfile,
+                    barberProfile = uiState.ownBarberProfile,
                     defaultDisplayName = userAccount.name.ifBlank { displayName },
-                    bookings = barberBookings,
+                    defaultPhone = userAccount.phone,
+                    bookings = uiState.barberBookings,
+                    openDispatchBookings = uiState.openDispatchBookings,
                     catalogServices = catalogList,
-                    serviceAreas = serviceAreas,
-                    isBusy = isBusy,
-                    onToggleOnline = { viewModel.barberToggleOnline(it) },
-                    onAcceptOrDeclineRequest = { b, accept, reason -> viewModel.barberRespond(b, accept, reason) },
+                    serviceAreas = uiState.serviceAreas,
+                    isBusy = uiState.isBusy,
+                    onToggleOnline = { viewModel.toggleBarberOnline(it) },
+                    onClaimOpenBooking = { openBooking ->
+                        viewModel.barberClaimOpenBooking(openBooking) { claimedId ->
+                            navController.navigate(AppRoutes.barberJobDetailRoute(claimedId))
+                        }
+                    },
+                    onAcceptOrDeclineRequest = { b, accept, reason ->
+                        viewModel.barberRespondToRequest(b, accept, reason)
+                    },
                     onAdvanceTripStatus = { id, next -> viewModel.barberAdvanceTripStatus(id, next) },
                     onOpenBookingDetail = { id -> navController.navigate(AppRoutes.barberJobDetailRoute(id)) },
-                    onApplyAsBarber = { name, phone, bio, exp, upi, shop, area, skills ->
-                        viewModel.applyAsBarber(
+                    onApplyAsBarber = { name, phone, bio, exp, upi, shop, area, _ ->
+                        val resolvedCoords = effectiveLocation?.takeIf { it.hasValidCoordinates }
+                            ?: LocationHelper.resolveBestFallbackLocationForText(area, "")
+                        viewModel.applyOrUpdateBarberProfile(
                             name = name,
                             phone = phone,
+                            gender = userAccount.gender.ifBlank { "MALE" },
+                            servesLadies = userAccount.gender == "FEMALE",
+                            servesMen = userAccount.gender != "FEMALE",
                             bio = bio,
                             experienceYears = exp,
+                            selectedServiceIds = catalogList.map { it.id },
+                            selectedAreaIds = uiState.serviceAreas.map { it.id }.ifEmpty { listOf("zone_central") },
+                            workStartHour = 9L,
+                            workEndHour = 20L,
                             upiId = upi,
                             shopName = shop,
                             shopAddress = area,
-                            skillsText = skills,
-                            serviceIds = catalogList.take(5).map { it.id },
-                            serviceAreaIds = serviceAreas.map { it.id }.ifEmpty { listOf("zone_central") }
+                            latitude = resolvedCoords.latitude,
+                            longitude = resolvedCoords.longitude
+                        )
+                    },
+                    detectedLocation = effectiveLocation,
+                    isFetchingLocation = effectiveIsFetchingLoc,
+                    onRequestBarberGps = {
+                        if (LocationHelper.hasLocationPermission(context)) {
+                            viewModel.autoFetchDeviceLocation(silent = false)
+                        } else {
+                            onRequestLaunchCoordinates()
+                        }
+                    },
+                    onSyncLiveGpsCoordinates = { lat, lon ->
+                        viewModel.syncBarberHubLocation(
+                            DetectedDoorLocation(
+                                doorHint = "",
+                                streetArea = uiState.ownBarberProfile?.shopAddress.orEmpty(),
+                                localityName = "Hyderabad",
+                                landmark = "",
+                                postalCode = "",
+                                latitude = lat,
+                                longitude = lon
+                            ),
+                            updateShopAddress = false
                         )
                     }
                 )
@@ -931,126 +844,191 @@ private fun AuthenticatedNavigationHost(
                 arguments = listOf(navArgument("bookingId") { type = NavType.StringType })
             ) { entry ->
                 val bookingId = entry.arguments?.getString("bookingId").orEmpty()
-                val job = barberBookings.firstOrNull { it.id == bookingId }
+                val job = uiState.barberBookings.firstOrNull { it.id == bookingId }
+                    ?: uiState.openDispatchBookings.firstOrNull { it.id == bookingId }
                 BarberJobDetailScreen(
                     booking = job,
-                    protectedAddress = protectedAddresses[bookingId],
+                    protectedAddress = uiState.unlockedAddresses[bookingId],
                     catalogServices = catalogList,
-                    isBusy = isBusy,
-                    onLoadProtectedAddress = { viewModel.loadProtectedAddress(it) },
+                    isBusy = uiState.isBusy,
+                    onLoadProtectedAddress = { viewModel.loadProtectedAddressForJob(it) },
                     onAdvanceTripStatus = { id, next -> viewModel.barberAdvanceTripStatus(id, next) },
-                    onFinishService = { id -> viewModel.barberFinishService(id) },
+                    onUpdateLiveLocation = { id, lat, lon -> viewModel.updateBarberLiveLocation(id, lat, lon) },
+                    onFinishService = { id -> viewModel.barberAdvanceTripStatus(id, "COMPLETED") },
                     onRequestExtraService = { id, svc -> viewModel.barberRequestExtraService(id, svc) },
                     onRecordDirectPayment = { id, status, method, paise, ref ->
-                        viewModel.barberRecordDirectPayment(id, status, method, paise, ref)
+                        viewModel.barberFinishAndDeclareDirectPayment(
+                            bookingId = id,
+                            declaredStatus = status,
+                            method = method,
+                            amountPaise = paise,
+                            note = ref,
+                            markCompleted = true
+                        )
                     },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    barberUpiId = uiState.ownBarberProfile?.upiId.orEmpty()
                 )
             }
 
             composable(AppRoutes.ROUTE_BARBER_SCHEDULE) {
                 val dateOptions = remember { viewModel.upcomingDateOptions(10) }
                 BarberScheduleScreen(
-                    barberProfile = ownBarberProfile,
-                    bookings = barberBookings,
+                    barberProfile = uiState.ownBarberProfile,
+                    bookings = uiState.barberBookings,
                     dateOptions = dateOptions,
-                    isBusy = isBusy,
+                    isBusy = uiState.isBusy,
                     onOpenBookingDetail = { id -> navController.navigate(AppRoutes.barberJobDetailRoute(id)) },
-                    onSaveWorkingHours = { startH, endH, breakS, breakE, buffer ->
-                        val prof = ownBarberProfile ?: return@BarberScheduleScreen
-                        viewModel.barberSaveSchedule(
-                            isOnline = prof.isOnline,
+                    onSaveWorkingHours = { startH, endH, breakS, breakE, bufferM ->
+                        val prof = uiState.ownBarberProfile
+                        viewModel.barberSaveScheduleAndProfile(
                             workStartHour = startH,
                             workEndHour = endH,
+                            upiId = prof?.upiId.orEmpty(),
+                            shopName = prof?.shopName.orEmpty(),
+                            shopAddress = prof?.shopAddress.orEmpty(),
+                            serviceIds = prof?.serviceIds.orEmpty(),
                             breakStartHour = breakS,
                             breakEndHour = breakE,
-                            travelBufferMinutes = buffer,
-                            upiId = prof.upiId,
-                            shopName = prof.shopName,
-                            shopAddress = prof.shopAddress,
-                            skillsText = prof.effectiveSkills().joinToString(", "),
-                            serviceIds = prof.serviceIds,
-                            workingDays = prof.workingDays
+                            travelBufferMinutes = bufferM
+                        )
+                    },
+                    onSaveScheduleWithDays = { startH, endH, breakS, breakE, bufferM, workingDays ->
+                        val prof = uiState.ownBarberProfile
+                        viewModel.barberSaveScheduleAndProfile(
+                            workStartHour = startH,
+                            workEndHour = endH,
+                            upiId = prof?.upiId.orEmpty(),
+                            shopName = prof?.shopName.orEmpty(),
+                            shopAddress = prof?.shopAddress.orEmpty(),
+                            serviceIds = prof?.serviceIds.orEmpty(),
+                            workingDays = workingDays,
+                            breakStartHour = breakS,
+                            breakEndHour = breakE,
+                            travelBufferMinutes = bufferM
                         )
                     }
                 )
             }
 
             composable(AppRoutes.ROUTE_BARBER_EARNINGS) {
-                BarberEarningsScreen(bookings = barberBookings)
+                BarberEarningsScreen(
+                    bookings = uiState.barberBookings,
+                    onOpenBookingDetail = { id -> navController.navigate(AppRoutes.barberJobDetailRoute(id)) }
+                )
             }
 
             composable(AppRoutes.ROUTE_BARBER_PROFILE) {
                 BarberProfileScreen(
-                    barberProfile = ownBarberProfile,
+                    barberProfile = uiState.ownBarberProfile,
                     displayName = userAccount.name.ifBlank { displayName },
+                    partnerPhone = userAccount.phone,
+                    isAdmin = userAccount.role == "ADMIN",
                     catalogServices = catalogList,
-                    platformConfig = platformConfig,
-                    isBusy = isBusy,
-                    onSaveBarberServicesAndUpi = { upi, shop, area, svcIds ->
-                        val prof = ownBarberProfile ?: return@BarberProfileScreen
-                        viewModel.barberSaveSchedule(
-                            isOnline = prof.isOnline,
-                            workStartHour = prof.workStartHour,
-                            workEndHour = prof.workEndHour,
-                            breakStartHour = prof.breakStartHour,
-                            breakEndHour = prof.breakEndHour,
-                            travelBufferMinutes = prof.travelBufferMinutes,
+                    platformConfig = uiState.platformConfig,
+                    isBusy = uiState.isBusy,
+                    onSaveBarberServicesAndUpi = { upi, shop, area, svcIds, servesLadies, servesMen ->
+                        val prof = uiState.ownBarberProfile
+                        viewModel.barberSaveScheduleAndProfile(
+                            workStartHour = prof?.workStartHour ?: 9L,
+                            workEndHour = prof?.workEndHour ?: 20L,
                             upiId = upi,
                             shopName = shop,
                             shopAddress = area,
-                            skillsText = prof.effectiveSkills().joinToString(", "),
                             serviceIds = svcIds,
-                            workingDays = prof.workingDays
+                            servesLadies = servesLadies,
+                            servesMen = servesMen
                         )
                     },
                     onCreateSupportTicket = { subj, desc ->
-                        viewModel.createSupportTicket("BARBER", "", "PARTNER_SUPPORT", subj, desc)
+                        viewModel.raiseSupportTicket("BARBER", "", "PARTNER_SUPPORT", subj, desc)
                     },
-                    onSwitchToCustomerMode = {
-                        viewModel.switchPortal(ActivePortal.CUSTOMER)
-                        navController.navigateSingleTopTo(AppRoutes.ROUTE_CUSTOMER_HOME)
+                    onSwitchToAdminMode = {
+                        viewModel.switchPortal(ActivePortal.ADMIN)
+                        navController.navigateSingleTopTo(AppRoutes.ROUTE_ADMIN_OVERVIEW)
                     },
-                    onSignOut = { performSignOut(context = context, onSignOutComplete = {}, scope = scope) }
+                    onSignOut = {
+                        signOutDoorCutSession(context = context, scope = scope) {
+                            viewModel.signOut()
+                        }
+                    },
+                    detectedLocation = effectiveLocation,
+                    isFetchingLocation = effectiveIsFetchingLoc,
+                    onRequestGpsLocation = {
+                        if (LocationHelper.hasLocationPermission(context)) {
+                            viewModel.autoFetchDeviceLocation(silent = false)
+                        } else {
+                            onRequestLaunchCoordinates()
+                        }
+                    },
+                    onSaveFullBarberProfile = { upi, shop, area, svcIds, servesLadies, servesMen, bio, expYears, lat, lon ->
+                        val prof = uiState.ownBarberProfile
+                        viewModel.barberSaveScheduleAndProfile(
+                            workStartHour = prof?.workStartHour ?: 9L,
+                            workEndHour = prof?.workEndHour ?: 20L,
+                            upiId = upi,
+                            shopName = shop,
+                            shopAddress = area,
+                            serviceIds = svcIds,
+                            servesLadies = servesLadies,
+                            servesMen = servesMen,
+                            latitude = lat,
+                            longitude = lon,
+                            bio = bio,
+                            experienceYears = expYears
+                        )
+                    }
                 )
             }
 
-            // --- ADMIN DASHBOARD ROUTES ---
+            // --- ADMIN GOVERNANCE ROUTES ---
             composable(AppRoutes.ROUTE_ADMIN_OVERVIEW) {
                 AdminOverviewScreen(
                     viewModel = viewModel,
-                    users = adminAllUsers,
-                    barbers = adminAllBarbers,
-                    services = adminAllServices,
-                    bookings = adminAllBookings,
-                    tickets = adminAllTickets,
-                    isBusy = isBusy
+                    users = uiState.adminAllUsers.ifEmpty { listOf(userAccount) },
+                    barbers = uiState.adminAllBarbers.ifEmpty { uiState.approvedBarbers },
+                    services = catalogList,
+                    bookings = uiState.adminAllBookings,
+                    tickets = uiState.supportTickets,
+                    isBusy = uiState.isBusy
                 )
             }
             composable(AppRoutes.ROUTE_ADMIN_BARBERS) {
-                AdminBarbersManagementScreen(viewModel = viewModel, barbers = adminAllBarbers, isBusy = isBusy)
+                AdminBarbersManagementScreen(
+                    viewModel = viewModel,
+                    barbers = uiState.adminAllBarbers.ifEmpty { uiState.approvedBarbers },
+                    isBusy = uiState.isBusy
+                )
             }
             composable(AppRoutes.ROUTE_ADMIN_CATALOG) {
-                AdminCatalogManagementScreen(viewModel = viewModel, services = adminAllServices, isBusy = isBusy)
+                AdminCatalogManagementScreen(
+                    viewModel = viewModel,
+                    services = catalogList,
+                    isBusy = uiState.isBusy
+                )
             }
             composable(AppRoutes.ROUTE_ADMIN_BOOKINGS) {
                 AdminBookingsAndDisputesScreen(
                     viewModel = viewModel,
-                    bookings = adminAllBookings,
-                    approvedBarbers = approvedBarbers,
-                    tickets = adminAllTickets,
-                    isBusy = isBusy
+                    bookings = uiState.adminAllBookings,
+                    approvedBarbers = uiState.approvedBarbers,
+                    tickets = uiState.supportTickets,
+                    isBusy = uiState.isBusy
                 )
             }
             composable(AppRoutes.ROUTE_ADMIN_POLICIES) {
                 AdminPoliciesAndAuditScreen(
                     viewModel = viewModel,
-                    platformConfig = platformConfig,
-                    auditLogs = adminAuditLogs,
-                    isBusy = isBusy
+                    platformConfig = uiState.platformConfig,
+                    auditLogs = uiState.auditLogs,
+                    isBusy = uiState.isBusy
                 )
             }
         }
+    }
+
+    if (showTopPoliciesSheet) {
+        LegalPoliciesSheet(onDismiss = { showTopPoliciesSheet = false })
     }
 }
 
@@ -1080,6 +1058,7 @@ private fun DoorCutScaffoldChrome(
                         interactivePhysics = false
                     ) {
                         TopAppBar(
+                            windowInsets = TopAppBarDefaults.windowInsets,
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                             title = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1110,7 +1089,8 @@ private fun DoorCutScaffoldChrome(
                                             text = portalSubtitle,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -1135,7 +1115,17 @@ private fun DoorCutScaffoldChrome(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                DismissibleStatusBanner(message = statusBanner, onDismiss = onDismissBanner)
+                if (statusBanner != null) {
+                    Box(
+                        modifier = if (!showChrome) {
+                            Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                        } else {
+                            Modifier
+                        }
+                    ) {
+                        DismissibleStatusBanner(message = statusBanner, onDismiss = onDismissBanner)
+                    }
+                }
                 Box(modifier = Modifier.fillMaxSize()) { content() }
             }
         }

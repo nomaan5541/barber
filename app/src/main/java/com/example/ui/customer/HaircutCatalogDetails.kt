@@ -68,6 +68,9 @@ import com.example.data.model.CurrencyUtils
 import com.example.ui.components.SkillPill
 import com.example.ui.components.StatusBadge
 import com.example.ui.components.serviceVisualFor
+import com.example.ui.glass.GlassMaterialStrength
+import com.example.ui.glass.LiquidGlassSurface
+import com.example.ui.motion.tactilePressPhysics
 import com.example.ui.theme.BrassGold
 import com.example.ui.theme.EspressoHeaderBg
 import com.example.ui.theme.SageVerified
@@ -123,6 +126,42 @@ fun canonicalGroomingCatalog(): List<CatalogService> = listOf(
         sortOrder = 3L
     ),
     CatalogService(
+        id = "svc_ladies_haircut",
+        name = "Ladies Haircut & Layer Styling",
+        category = "LADIES_STYLING",
+        description = "Salon-grade U-cut, V-cut, feather or butterfly layers by a verified Lady Hair Stylist at home, including protective cape & floor cleanup.",
+        pricePaise = 49900L,
+        durationMinutes = 45L,
+        isActive = true,
+        isPackage = false,
+        instructions = "Keep a comfortable chair near a wall socket if blow-dry finish is desired.",
+        sortOrder = 4L
+    ),
+    CatalogService(
+        id = "svc_ladies_layer_blowout",
+        name = "Ladies Salon Blowout & Curls",
+        category = "LADIES_STYLING",
+        description = "Voluminous round-brush salon blowout, soft waves, or sleek straightening with heat-protectant serum at your doorstep.",
+        pricePaise = 59900L,
+        durationMinutes = 50L,
+        isActive = true,
+        isPackage = false,
+        instructions = "Performed on clean towel-dried or dry hair near a standard power outlet.",
+        sortOrder = 5L
+    ),
+    CatalogService(
+        id = "svc_ladies_trim_wash",
+        name = "Ladies Split-End Trim & Crown Spa",
+        category = "LADIES_STYLING",
+        description = "Healthy split-end dusting trim paired with a soothing 15-minute nourishing scalp & shoulder massage.",
+        pricePaise = 39900L,
+        durationMinutes = 35L,
+        isActive = true,
+        isPackage = false,
+        instructions = "Performed by a verified female hair stylist when Lady Stylist preference is enabled.",
+        sortOrder = 6L
+    ),
+    CatalogService(
         id = "svc_normal_head_cut",
         name = "Normal Head Cut",
         category = "HAIRCUTS",
@@ -132,7 +171,7 @@ fun canonicalGroomingCatalog(): List<CatalogService> = listOf(
         isActive = true,
         isPackage = false,
         instructions = "Keep any straight-back chair ready near good lighting.",
-        sortOrder = 4L
+        sortOrder = 7L
     ),
     CatalogService(
         id = "svc_traditional_cut",
@@ -355,6 +394,7 @@ fun craftDetailsFor(service: CatalogService): ServiceCraftDetails {
         )
         else -> ServiceCraftDetails(
             tagline = when (service.category) {
+                "LADIES_STYLING" -> "Verified Lady Hair Stylist Precision Cut & Blowout"
                 "HAIRCUTS" -> "Salon-Grade Precision Haircut at Your Doorstep"
                 "BEARD_MOUSTACHE" -> "Symmetrical Razor Line-Up & Soothing Skin Care"
                 "HAIR_CARE" -> "Deep Relaxation & Scalp Revitalization"
@@ -402,11 +442,11 @@ fun ServiceDetailBottomSheet(
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Hero Image Banner
+            // Bright Unshaded Image Banner + Crisp Title & Right-Side Bold Price Header
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(185.dp)
+                    .height(176.dp)
                     .clip(RoundedCornerShape(22.dp))
             ) {
                 Image(
@@ -415,23 +455,9 @@ fun ServiceDetailBottomSheet(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.35f),
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.8f)
-                                )
-                            )
-                        )
-                )
                 Surface(
-                    color = EspressoHeaderBg.copy(alpha = 0.9f),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                     shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.5f)),
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(12.dp)
@@ -439,8 +465,8 @@ fun ServiceDetailBottomSheet(
                     Text(
                         text = visual.badgeLabel,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFFFDF9E),
-                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.ExtraBold,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                     )
                 }
@@ -452,58 +478,63 @@ fun ServiceDetailBottomSheet(
                         .padding(8.dp)
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
                 ) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close details", tint = Color.White)
-                }
-
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = service.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = details.tagline,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFFFDF9E)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Surface(
-                        color = BrassGold,
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text(
-                            text = CurrencyUtils.formatRupees(service.pricePaise),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = EspressoHeaderBg,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Close details",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
 
-            // Key Specs Strip (Duration, Platform Fee, Ideal For)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = service.name,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = details.tagline,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Surface(
+                    color = BrassGold.copy(alpha = 0.22f),
+                    border = BorderStroke(1.5.dp, BrassGold),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        text = CurrencyUtils.formatRupees(service.pricePaise),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+            // Key Specs Strip (Duration & Pay Barber Badge)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
+                com.example.ui.glass.LiquidGlassSurface(
+                    strength = com.example.ui.glass.GlassMaterialStrength.AtelierCard,
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    shadowElevation = 1.dp,
+                    interactivePhysics = false
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -533,10 +564,11 @@ fun ServiceDetailBottomSheet(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+            com.example.ui.glass.LiquidGlassSurface(
+                strength = com.example.ui.glass.GlassMaterialStrength.AccentEmerald,
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 1.dp,
+                interactivePhysics = false,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -626,11 +658,12 @@ fun ServiceDetailBottomSheet(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // Transparent Pricing Row
-            Surface(
+            // Transparent Pricing Row in Liquid Glass
+            com.example.ui.glass.LiquidGlassSurface(
+                strength = com.example.ui.glass.GlassMaterialStrength.AtelierCard,
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shadowElevation = 1.dp,
+                interactivePhysics = false,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -653,7 +686,7 @@ fun ServiceDetailBottomSheet(
                 }
             }
 
-            // Action Buttons
+            // Action Buttons with Tactile Press Physics
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -674,6 +707,7 @@ fun ServiceDetailBottomSheet(
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp)
+                        .tactilePressPhysics(enableHaptics = true)
                         .testTag("sheet_toggle_service_button")
                 ) {
                     Icon(
@@ -699,7 +733,9 @@ fun ServiceDetailBottomSheet(
                             onGoToCart()
                         },
                         shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.height(52.dp)
+                        modifier = Modifier
+                            .height(52.dp)
+                            .tactilePressPhysics(enableHaptics = true)
                     ) {
                         Text("Continue", fontWeight = FontWeight.Bold)
                     }
@@ -721,19 +757,18 @@ fun PhonePermissionsPromptCard(
 ) {
     if (snapshot.allGrantedIncludingCamera) return
 
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.55f)),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    com.example.ui.glass.LiquidGlassSurface(
+        strength = com.example.ui.glass.GlassMaterialStrength.AtelierCard,
+        shape = RoundedCornerShape(22.dp),
+        accentBorderColor = BrassGold.copy(alpha = 0.55f),
+        shadowElevation = 2.dp,
+        interactivePhysics = false,
         modifier = modifier
             .fillMaxWidth()
             .testTag("phone_permissions_prompt_card")
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -800,6 +835,7 @@ fun PhonePermissionsPromptCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
+                    .tactilePressPhysics(enableHaptics = true)
                     .testTag("request_all_permissions_button")
             ) {
                 Icon(
@@ -829,13 +865,13 @@ private fun PermissionMiniChip(
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = if (granted) {
-            SageVerified.copy(alpha = 0.12f)
+            SageVerified.copy(alpha = 0.14f)
         } else {
             MaterialTheme.colorScheme.surfaceContainerLow
         },
         border = BorderStroke(
             1.dp,
-            if (granted) SageVerified.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant
+            if (granted) SageVerified.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant
         ),
         modifier = modifier
     ) {

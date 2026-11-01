@@ -2,7 +2,6 @@ package com.example.ui.customer
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,11 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -28,6 +28,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,15 +43,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.BarberProfile
 import com.example.data.model.CatalogService
 import com.example.data.model.CurrencyUtils
-import com.example.ui.components.BarberAvatarBadge
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.SectionHeader
 import com.example.ui.components.serviceVisualFor
+import com.example.ui.motion.staggeredSpringEntrance
+import com.example.ui.motion.tactilePressPhysics
 import com.example.ui.theme.BrassGold
 import com.example.ui.theme.EspressoHeaderBg
 import com.example.util.DoorCutPreferences
@@ -58,54 +60,20 @@ import com.example.util.DoorCutPreferences
 @Composable
 fun CustomerFavouritesScreen(
     services: List<CatalogService>,
-    approvedBarbers: List<BarberProfile>,
     onQuickBookService: (CatalogService) -> Unit,
-    onQuickBookBarber: (BarberProfile) -> Unit,
     onBrowseHome: () -> Unit
 ) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { DoorCutPreferences.ensureLoaded(context) }
     val localPrefs by DoorCutPreferences.state.collectAsStateWithLifecycle()
 
-    val fallbackBarbers = remember {
-        listOf(
-            BarberProfile(
-                id = "barber_arman_master",
-                barberId = "barber_arman_master",
-                name = "Arman Siddiqui",
-                experienceYears = 7L,
-                approvalStatus = "APPROVED",
-                isOnline = true,
-                ratingAvg = 4.9,
-                reviewCount = 48L
-            ),
-            BarberProfile(
-                id = "barber_vikram_stylist",
-                barberId = "barber_vikram_stylist",
-                name = "Vikram Rathore",
-                experienceYears = 8L,
-                approvalStatus = "APPROVED",
-                isOnline = true,
-                ratingAvg = 4.8,
-                reviewCount = 36L
-            )
-        )
-    }
-
-    val allBarbers = remember(approvedBarbers) {
-        approvedBarbers.ifEmpty { fallbackBarbers }
-    }
     val favServices = remember(services, localPrefs.favouriteServiceIds) {
         services.filter { localPrefs.favouriteServiceIds.contains(it.id) }
-    }
-    val favBarbers = remember(allBarbers, localPrefs.favouriteBarberIds) {
-        allBarbers.filter { localPrefs.favouriteBarberIds.contains(it.barberId) }
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .testTag("customer_favourites_screen"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -114,140 +82,68 @@ fun CustomerFavouritesScreen(
         item {
             SectionHeader(
                 eyebrow = "QUICK REBOOK",
-                title = "Your Favourites",
-                subtitle = "Book your preferred services and home barbers in one tap.",
-                modifier = Modifier.widthIn(max = 600.dp)
+                title = "Saved Services",
+                subtitle = "Rebook your favourite haircuts, shaves, or ladies styling in one tap.",
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
-        if (favServices.isEmpty() && favBarbers.isEmpty()) {
+        if (favServices.isEmpty()) {
             item {
-                EmptyStateCard(
-                    icon = Icons.Filled.Favorite,
-                    title = "No Favourites Saved Yet",
-                    subtitle = "Tap the heart icon on any haircut or barber to keep them here for instant booking.",
-                    action = {
-                        Button(
-                            onClick = onBrowseHome,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = EspressoHeaderBg,
-                                contentColor = Color(0xFFFFDF9E)
-                            ),
-                            modifier = Modifier.height(48.dp)
-                        ) {
-                            Text("Explore Services", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                )
-            }
-        } else {
-            if (favBarbers.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Saved Barbers",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .widthIn(max = 600.dp)
-                            .fillMaxWidth()
-                    )
-                }
-                items(favBarbers, key = { it.barberId }) { barber ->
-                    Card(
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .widthIn(max = 600.dp)
-                            .fillMaxWidth()
-                            .testTag("fav_barber_card_${barber.barberId}")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            BarberAvatarBadge(name = barber.name, isOnline = barber.isOnline, size = 48.dp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = barber.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Star,
-                                        contentDescription = null,
-                                        tint = BrassGold,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "${String.format("%.1f", barber.ratingAvg)} · ${barber.experienceYears} yrs exp",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            IconButton(
-                                onClick = { DoorCutPreferences.toggleFavouriteBarber(context, barber.barberId) },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Favorite,
-                                    contentDescription = "Remove favourite barber",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
+                Column(modifier = Modifier.widthIn(max = 600.dp)) {
+                    EmptyStateCard(
+                        icon = Icons.Filled.Favorite,
+                        title = "No Saved Services Yet",
+                        subtitle = "Tap the heart icon on any haircut or styling service on Home to save it here for instant rebooking.",
+                        action = {
                             Button(
-                                onClick = { onQuickBookBarber(barber) },
-                                shape = RoundedCornerShape(12.dp),
+                                onClick = onBrowseHome,
+                                shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = EspressoHeaderBg,
                                     contentColor = Color(0xFFFFDF9E)
                                 ),
-                                modifier = Modifier.height(48.dp)
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .tactilePressPhysics(enableHaptics = true)
+                                    .testTag("explore_services_from_favourites_button")
                             ) {
-                                Text("Book", fontWeight = FontWeight.Bold)
+                                Text("Explore Services", fontWeight = FontWeight.Bold)
                             }
                         }
-                    }
-                }
-            }
-
-            if (favServices.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Saved Services",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .widthIn(max = 600.dp)
-                            .fillMaxWidth()
                     )
                 }
-                items(favServices, key = { it.id }) { service ->
-                    val visual = remember(service.id, service.category) { serviceVisualFor(service) }
-                    Card(
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .widthIn(max = 600.dp)
-                            .fillMaxWidth()
-                            .testTag("fav_service_card_${service.id}")
+            }
+        } else {
+            itemsIndexed(favServices, key = { _, s -> s.id }) { idx, service ->
+                val visual = remember(service.id, service.category) { serviceVisualFor(service) }
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier
+                        .widthIn(max = 600.dp)
+                        .fillMaxWidth()
+                        .staggeredSpringEntrance(index = idx + 1)
+                        .testTag("fav_service_card_${service.id}")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top
                         ) {
                             Image(
                                 painter = painterResource(id = visual.drawableRes),
                                 contentDescription = service.name,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(60.dp)
+                                    .size(72.dp)
                                     .clip(RoundedCornerShape(14.dp))
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -255,35 +151,80 @@ fun CustomerFavouritesScreen(
                                 Text(
                                     text = service.name,
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = "${CurrencyUtils.formatRupees(service.pricePaise)} · ${service.durationMinutes} min · Pay barber",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Schedule,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${service.durationMinutes} min · Pay barber after cut",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                            IconButton(
-                                onClick = { DoorCutPreferences.toggleFavouriteService(context, service.id) },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Favorite,
-                                    contentDescription = "Remove favourite service",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Surface(
+                                    color = BrassGold.copy(alpha = 0.24f),
+                                    border = BorderStroke(1.dp, BrassGold),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = CurrencyUtils.formatRupees(service.pricePaise),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { DoorCutPreferences.toggleFavouriteService(context, service.id) },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Favorite,
+                                        contentDescription = "Remove favourite service",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
-                            Button(
-                                onClick = { onQuickBookService(service) },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = EspressoHeaderBg,
-                                    contentColor = Color(0xFFFFDF9E)
-                                ),
-                                modifier = Modifier.height(48.dp)
-                            ) {
-                                Text("Book", fontWeight = FontWeight.Bold)
-                            }
+                        }
+
+                        Text(
+                            text = service.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Button(
+                            onClick = { onQuickBookService(service) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EspressoHeaderBg,
+                                contentColor = Color(0xFFFFDF9E)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .tactilePressPhysics(enableHaptics = true)
+                                .testTag("fav_book_service_button_${service.id}")
+                        ) {
+                            Icon(Icons.Filled.ContentCut, contentDescription = null, tint = BrassGold, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Book Service Now  •  ${CurrencyUtils.formatRupees(service.pricePaise)}",
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
                         }
                     }
                 }

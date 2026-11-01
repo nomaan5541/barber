@@ -1,10 +1,9 @@
 package com.example.ui.viewmodel
 
-import android.content.Context
-import android.util.Log
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.model.AuditLog
+import com.example.data.model.AuditLogEntry
 import com.example.data.model.BarberProfile
 import com.example.data.model.Booking
 import com.example.data.model.BookingPrivateAddress
@@ -12,465 +11,623 @@ import com.example.data.model.CatalogService
 import com.example.data.model.CustomerAddress
 import com.example.data.model.PlatformConfig
 import com.example.data.model.ServiceArea
-import com.example.data.model.SlotLock
 import com.example.data.model.SupportTicket
 import com.example.data.model.UserAccount
 import com.example.data.repository.MarketplaceRepository
+import com.example.ui.customer.canonicalGroomingCatalog
 import com.example.util.DetectedDoorLocation
 import com.example.util.LocationFetchResult
 import com.example.util.LocationHelper
 import com.example.util.PendingDoorAddressDraft
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Calendar
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-sealed interface UiState<out T> {
-    data object Loading : UiState<Nothing>
-    data class Success<T>(val data: T) : UiState<T>
-    data class Error(val message: String) : UiState<Nothing>
-}
-
 enum class ActivePortal {
-    CUSTOMER, BARBER, ADMIN
+    CUSTOMER,
+    BARBER,
+    ADMIN
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
-class MarketplaceViewModel(
-    private val repository: MarketplaceRepository,
-    val currentUserId: String,
-    private val initialDisplayName: String,
-    private val initialEmail: String
-) : ViewModel() {
+data class MarketplaceUiState(
+    val isLoadingAuth: Boolean = true,
+    val isAuthenticated: Boolean = false,
+    val uid: String? = null,
+    val userAccount: UserAccount? = null,
+    val activePortal: ActivePortal = ActivePortal.CUSTOMER,
 
-    private val _statusBanner = MutableStateFlow<String?>(null)
-    val statusBanner: StateFlow<String?> = _statusBanner.asStateFlow()
+    // Catalog & Partner Barbers
+    val services: List<CatalogService> = emptyList(),
+    val serviceAreas: List<ServiceArea> = emptyList(),
+    val approvedBarbers: List<BarberProfile> = emptyList(),
+    val ownBarberProfile: BarberProfile? = null,
+    val platformConfig: PlatformConfig = PlatformConfig(),
 
-    private val _isBusy = MutableStateFlow(false)
-    val isBusy: StateFlow<Boolean> = _isBusy.asStateFlow()
+    // Real-time GPS & Door Number Setup State
+    val detectedLocation: DetectedDoorLocation? = null,
+    val isFetchingLocation: Boolean = false,
+    val locationStatusMessage: String? = null,
+    val pendingDoorDraft: PendingDoorAddressDraft? = null,
 
-    private val _selectedPortalOverride = MutableStateFlow<ActivePortal?>(null)
-    val selectedPortalOverride: StateFlow<ActivePortal?> = _selectedPortalOverride.asStateFlow()
+    // Customer Booking Cart & Open-Dispatch Checkout State (No Manual Barber Selection)
+    val selectedServiceIds: Set<String> = emptySet(),
+    val selectedDateKey: String = LocalDate.now().toString(),
+    val selectedStartHour: Long = 10L,
+    val bookingMode: String = "ASAP",
+    val bookingRecipientGender: String = "MALE",
+    val bookingRecipientAge: Long = 26L,
+    val preferLadyBarber: Boolean = false,
+    val savedAddresses: List<CustomerAddress> = emptyList(),
+    val selectedAddressId: String? = null,
+    val customerBookings: List<Booking> = emptyList(),
 
-    // Live GPS Location & Auto Door-Address Onboarding State
-    private val _detectedLocation = MutableStateFlow<DetectedDoorLocation?>(null)
-    val detectedLocation: StateFlow<DetectedDoorLocation?> = _detectedLocation.asStateFlow()
+    // Barber Open-Dispatch Queue & Assigned Jobs
+    val openDispatchBookings: List<Booking> = emptyList(),
+    val barberBookings: List<Booking> = emptyList(),
+    val unlockedAddresses: Map<String, BookingPrivateAddress> = emptyMap(),
 
-    private val _isFetchingLocation = MutableStateFlow(false)
-    val isFetchingLocation: StateFlow<Boolean> = _isFetchingLocation.asStateFlow()
+    // Support & Admin
+    val supportTickets: List<SupportTicket> = emptyList(),
+    val adminAllBookings: List<Booking> = emptyList(),
+    val adminAllUsers: List<UserAccount> = emptyList(),
+    val adminAllBarbers: List<BarberProfile> = emptyList(),
+    val auditLogs: List<AuditLogEntry> = emptyList(),
 
-    private val _locationErrorMessage = MutableStateFlow<String?>(null)
-    val locationErrorMessage: StateFlow<String?> = _locationErrorMessage.asStateFlow()
+    // Feedback & Loading
+    val isBusy: Boolean = false,
+    val snackbarMessage: String? = null
+) {
+    val requiresOnboarding: Boolean
+        get() = isAuthenticated &&
+            userAccount != null &&
+            !userAccount.onboardingCompleted &&
+            userAccount.role != "ADMIN"
 
-    private val _showDoorAddressPrompt = MutableStateFlow(false)
-    val showDoorAddressPrompt: StateFlow<Boolean> = _showDoorAddressPrompt.asStateFlow()
-
-    private val _hasAttemptedLoginLocationFetch = MutableStateFlow(false)
-    val hasAttemptedLoginLocationFetch: StateFlow<Boolean> = _hasAttemptedLoginLocationFetch.asStateFlow()
-
-    // Customer Checkout Draft State
-    private val _selectedServiceIds = MutableStateFlow<Set<String>>(emptySet())
-    val selectedServiceIds: StateFlow<Set<String>> = _selectedServiceIds.asStateFlow()
-
-    private val _selectedBarberId = MutableStateFlow<String?>(null)
-    val selectedBarberId: StateFlow<String?> = _selectedBarberId.asStateFlow()
-
-    private val _selectedAddressId = MutableStateFlow<String?>(null)
-    val selectedAddressId: StateFlow<String?> = _selectedAddressId.asStateFlow()
-
-    private val _selectedDateKey = MutableStateFlow(defaultTodayDateKey())
-    val selectedDateKey: StateFlow<String> = _selectedDateKey.asStateFlow()
-
-    private val _selectedStartHour = MutableStateFlow<Long?>(null)
-    val selectedStartHour: StateFlow<Long?> = _selectedStartHour.asStateFlow()
-
-    // Protected Address cache for authorized booking views
-    private val _protectedAddresses = MutableStateFlow<Map<String, BookingPrivateAddress>>(emptyMap())
-    val protectedAddresses: StateFlow<Map<String, BookingPrivateAddress>> = _protectedAddresses.asStateFlow()
-
-    val userAccountState: StateFlow<UiState<UserAccount>> = repository.observeUserAccount(currentUserId)
-        .map<UserAccount?, UiState<UserAccount>> { acct ->
-            if (acct != null) UiState.Success(acct) else UiState.Loading
+    val selectedServices: List<CatalogService>
+        get() {
+            val catalog = services.ifEmpty { canonicalGroomingCatalog() }
+            return catalog.filter { selectedServiceIds.contains(it.id) }
         }
-        .catch { e ->
-            Log.w(TAG, "observeUserAccount error", e)
-            emit(UiState.Error(e.localizedMessage ?: "Failed to load account"))
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
 
-    private val isAdminFlow = userAccountState.map { state ->
-        (state as? UiState.Success)?.data?.role == "ADMIN"
-    }
+    val serviceSubtotalPaise: Long
+        get() = selectedServices.sumOf { it.pricePaise }
 
-    val activeServicesState: StateFlow<UiState<List<CatalogService>>> = repository.observeActiveServices()
-        .map<List<CatalogService>, UiState<List<CatalogService>>> { UiState.Success(it) }
-        .catch { e ->
-            Log.w(TAG, "observeActiveServices error", e)
-            emit(UiState.Error(e.localizedMessage ?: "Failed to load catalog"))
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+    val totalDurationMinutes: Long
+        get() = selectedServices.sumOf { it.durationMinutes }
 
-    val serviceAreasState: StateFlow<List<ServiceArea>> = repository.observeActiveServiceAreas()
-        .catch { e ->
-            Log.w(TAG, "observeActiveServiceAreas error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+    val computedBookingFeePaise: Long
+        get() = platformConfig.computeCustomerConfirmationFeePaise(serviceSubtotalPaise)
 
-    val platformConfigState: StateFlow<PlatformConfig> = repository.observePlatformConfig()
-        .catch { e ->
-            Log.w(TAG, "observePlatformConfig error", e)
-            emit(PlatformConfig())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), PlatformConfig())
+    val computedBarberCommissionPaise: Long
+        get() = platformConfig.computeBarberCommissionPaise(serviceSubtotalPaise)
+}
 
-    val approvedBarbersState: StateFlow<List<BarberProfile>> = repository.observeApprovedBarbers()
-        .catch { e ->
-            Log.w(TAG, "observeApprovedBarbers error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+class MarketplaceViewModel(application: Application) : AndroidViewModel(application) {
 
-    val ownBarberProfileState: StateFlow<BarberProfile?> = repository.observeOwnBarberProfile(currentUserId)
-        .catch { e ->
-            Log.w(TAG, "observeOwnBarberProfile error", e)
-            emit(null)
-        }
+    private val repo = MarketplaceRepository(application.applicationContext)
+    private val _uiState = MutableStateFlow(MarketplaceUiState())
+    val uiState: StateFlow<MarketplaceUiState> = _uiState.asStateFlow()
+
+    val detectedLocation: StateFlow<DetectedDoorLocation?> = _uiState
+        .map { it.detectedLocation }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
 
-    val customerAddressesState: StateFlow<List<CustomerAddress>> = repository.observeCustomerAddresses(currentUserId)
-        .catch { e ->
-            Log.w(TAG, "observeCustomerAddresses error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+    val isFetchingLocation: StateFlow<Boolean> = _uiState
+        .map { it.isFetchingLocation }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), false)
 
-    val activeSlotLocksState: StateFlow<List<SlotLock>> = repository.observeActiveSlotLocks()
-        .catch { e ->
-            Log.w(TAG, "observeActiveSlotLocks error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val customerBookingsState: StateFlow<List<Booking>> = repository.observeCustomerBookings(currentUserId)
-        .catch { e ->
-            Log.w(TAG, "observeCustomerBookings error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val barberBookingsState: StateFlow<List<Booking>> = repository.observeBarberBookings(currentUserId)
-        .catch { e ->
-            Log.w(TAG, "observeBarberBookings error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val myTicketsState: StateFlow<List<SupportTicket>> = repository.observeMySupportTickets(currentUserId)
-        .catch { e ->
-            Log.w(TAG, "observeMySupportTickets error", e)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    // Admin-scoped flows (only subscribed when user is ADMIN)
-    val adminAllServicesState: StateFlow<List<CatalogService>> = isAdminFlow
-        .flatMapLatest { isAdmin ->
-            if (isAdmin) repository.observeAllServicesForAdmin() else flowOf(emptyList())
-        }
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val adminAllBarbersState: StateFlow<List<BarberProfile>> = isAdminFlow
-        .flatMapLatest { isAdmin ->
-            if (isAdmin) repository.observeAllBarbersForAdmin() else flowOf(emptyList())
-        }
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val adminAllBookingsState: StateFlow<List<Booking>> = isAdminFlow
-        .flatMapLatest { isAdmin ->
-            if (isAdmin) repository.observeAllBookingsForAdmin() else flowOf(emptyList())
-        }
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val adminAllUsersState: StateFlow<List<UserAccount>> = isAdminFlow
-        .flatMapLatest { isAdmin ->
-            if (isAdmin) repository.observeAllUsersForAdmin() else flowOf(emptyList())
-        }
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val adminAllTicketsState: StateFlow<List<SupportTicket>> = isAdminFlow
-        .flatMapLatest { isAdmin ->
-            if (isAdmin) repository.observeAllSupportTicketsForAdmin() else flowOf(emptyList())
-        }
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
-
-    val adminAuditLogsState: StateFlow<List<AuditLog>> = isAdminFlow
-        .flatMapLatest { isAdmin ->
-            if (isAdmin) repository.observeAuditLogsForAdmin() else flowOf(emptyList())
-        }
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+    private val streamJobs = mutableListOf<Job>()
 
     init {
+        observeAuthenticationState()
+    }
+
+    private fun observeAuthenticationState() {
         viewModelScope.launch {
-            try {
-                val acct = repository.ensureUserAccount(
-                    userId = currentUserId,
-                    displayName = initialDisplayName,
-                    email = initialEmail
-                )
-                repository.ensureCanonicalCatalogIfEmpty(isAdminUser = acct.role == "ADMIN")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to ensure user account", e)
-                _statusBanner.value = e.localizedMessage ?: "Account initialization error"
+            repo.observeAuthUid().collectLatest { uid ->
+                cancelActiveStreams()
+                if (uid == null) {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingAuth = false,
+                            isAuthenticated = false,
+                            uid = null,
+                            userAccount = null,
+                            activePortal = ActivePortal.CUSTOMER,
+                            savedAddresses = emptyList(),
+                            customerBookings = emptyList(),
+                            openDispatchBookings = emptyList(),
+                            barberBookings = emptyList(),
+                            unlockedAddresses = emptyMap(),
+                            supportTickets = emptyList(),
+                            adminAllBookings = emptyList(),
+                            adminAllUsers = emptyList(),
+                            adminAllBarbers = emptyList(),
+                            auditLogs = emptyList()
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoadingAuth = true, isAuthenticated = true, uid = uid) }
+                    val profileResult = repo.ensureSignedInProfile()
+                    repo.ensureInitialSeedDataIfEmpty()
+
+                    val initialAccount = profileResult.getOrNull()
+                    val defaultPortal = when (initialAccount?.role) {
+                        "ADMIN" -> ActivePortal.ADMIN
+                        "BARBER" -> ActivePortal.BARBER
+                        else -> ActivePortal.CUSTOMER
+                    }
+                    val defaultGender = initialAccount?.gender?.takeIf { it.isNotBlank() } ?: "MALE"
+                    val defaultAge = initialAccount?.age?.takeIf { it > 0L } ?: 26L
+
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoadingAuth = false,
+                            isAuthenticated = true,
+                            uid = uid,
+                            userAccount = initialAccount,
+                            activePortal = defaultPortal,
+                            bookingRecipientGender = defaultGender,
+                            bookingRecipientAge = defaultAge,
+                            preferLadyBarber = defaultGender == "FEMALE"
+                        )
+                    }
+                    startAuthenticatedStreams(uid, initialAccount?.role == "ADMIN")
+                }
             }
         }
     }
 
-    fun clearBanner() {
-        _statusBanner.value = null
+    private fun cancelActiveStreams() {
+        streamJobs.forEach { it.cancel() }
+        streamJobs.clear()
     }
 
-    fun switchPortal(portal: ActivePortal?) {
-        _selectedPortalOverride.value = portal
-    }
+    private fun startAuthenticatedStreams(uid: String, isAdminInitial: Boolean) {
+        streamJobs += viewModelScope.launch {
+            repo.observeUserAccount(uid).collectLatest { account ->
+                val portalForRole = when (account?.role) {
+                    "ADMIN" -> if (_uiState.value.activePortal == ActivePortal.CUSTOMER || _uiState.value.activePortal == ActivePortal.BARBER) {
+                        _uiState.value.activePortal
+                    } else {
+                        ActivePortal.ADMIN
+                    }
+                    "BARBER" -> ActivePortal.BARBER
+                    else -> ActivePortal.CUSTOMER
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        userAccount = account,
+                        activePortal = portalForRole,
+                        bookingRecipientGender = if (state.selectedServiceIds.isEmpty() && !account?.gender.isNullOrBlank()) {
+                            account!!.gender
+                        } else {
+                            state.bookingRecipientGender
+                        },
+                        bookingRecipientAge = if (state.selectedServiceIds.isEmpty() && (account?.age ?: 0L) > 0L) {
+                            account!!.age
+                        } else {
+                            state.bookingRecipientAge
+                        }
+                    )
+                }
+            }
+        }
 
-    // --- Auto-Fetch Customer GPS Location & Door Address Prompt ---
+        streamJobs += viewModelScope.launch {
+            repo.observeActiveServices(includeInactiveForAdmin = isAdminInitial).collectLatest { list ->
+                _uiState.update { it.copy(services = list) }
+            }
+        }
 
-    fun seedInitialLocation(location: DetectedDoorLocation?) {
-        if (location != null && _detectedLocation.value == null) {
-            _detectedLocation.value = location
-            _locationErrorMessage.value = null
-            _hasAttemptedLoginLocationFetch.value = true
+        streamJobs += viewModelScope.launch {
+            repo.observeActiveServiceAreas(includeInactiveForAdmin = isAdminInitial).collectLatest { areas ->
+                _uiState.update { it.copy(serviceAreas = areas) }
+            }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeApprovedBarbers(includeAllForAdmin = isAdminInitial).collectLatest { barbers ->
+                _uiState.update { it.copy(approvedBarbers = barbers) }
+            }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeOwnBarberProfile(uid).collectLatest { own ->
+                _uiState.update { it.copy(ownBarberProfile = own) }
+            }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observePlatformConfig().collectLatest { cfg ->
+                _uiState.update { it.copy(platformConfig = cfg) }
+            }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeCustomerAddresses(uid)
+                .catch { Log.w("MarketplaceVM", "observeCustomerAddresses closed", it); emit(emptyList()) }
+                .collectLatest { addrs ->
+                    _uiState.update { state ->
+                        val chosen = state.selectedAddressId?.takeIf { id -> addrs.any { it.id == id } }
+                            ?: addrs.firstOrNull()?.id
+                        state.copy(savedAddresses = addrs, selectedAddressId = chosen)
+                    }
+                }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeCustomerBookings(uid)
+                .catch { Log.w("MarketplaceVM", "observeCustomerBookings closed", it); emit(emptyList()) }
+                .collectLatest { bookings ->
+                    _uiState.update { it.copy(customerBookings = bookings) }
+                }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeOpenDispatchBookings()
+                .catch { Log.w("MarketplaceVM", "observeOpenDispatchBookings closed", it); emit(emptyList()) }
+                .collectLatest { openBookings ->
+                    _uiState.update { it.copy(openDispatchBookings = openBookings) }
+                }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeBarberBookings(uid)
+                .catch { Log.w("MarketplaceVM", "observeBarberBookings closed", it); emit(emptyList()) }
+                .collectLatest { jobs ->
+                    _uiState.update { it.copy(barberBookings = jobs) }
+                }
+        }
+
+        streamJobs += viewModelScope.launch {
+            repo.observeSupportTickets(uid, isAdminInitial)
+                .catch { Log.w("MarketplaceVM", "observeSupportTickets closed", it); emit(emptyList()) }
+                .collectLatest { tickets ->
+                    _uiState.update { it.copy(supportTickets = tickets) }
+                }
+        }
+
+        if (isAdminInitial) {
+            streamJobs += viewModelScope.launch {
+                repo.observeAllBookingsForAdmin().collectLatest { all ->
+                    _uiState.update { it.copy(adminAllBookings = all) }
+                }
+            }
+            streamJobs += viewModelScope.launch {
+                repo.observeAllUsersForAdmin().collectLatest { users ->
+                    _uiState.update { it.copy(adminAllUsers = users) }
+                }
+            }
+            streamJobs += viewModelScope.launch {
+                repo.observeAllBarbersForAdmin().collectLatest { allBarbers ->
+                    _uiState.update { it.copy(adminAllBarbers = allBarbers) }
+                }
+            }
+            streamJobs += viewModelScope.launch {
+                repo.observeAuditLogs().collectLatest { logs ->
+                    _uiState.update { it.copy(auditLogs = logs) }
+                }
+            }
         }
     }
 
-    fun markLoginLocationAttempted() {
-        _hasAttemptedLoginLocationFetch.value = true
-    }
+    // --- GPS Auto-Fetch & Door Number Draft Actions ---
 
-    fun openDoorAddressPrompt() {
-        _showDoorAddressPrompt.value = true
-    }
+    fun autoFetchDeviceLocation(silent: Boolean = false) {
+        val context = getApplication<Application>().applicationContext
+        if (!LocationHelper.hasLocationPermission(context)) {
+            if (!silent) {
+                _uiState.update {
+                    it.copy(locationStatusMessage = "Allow Location access so your appointed barber can track to your doorstep.")
+                }
+            }
+            return
+        }
+        if (_uiState.value.isFetchingLocation) return
 
-    fun dismissDoorAddressPrompt() {
-        _showDoorAddressPrompt.value = false
+        viewModelScope.launch {
+            _uiState.update { it.copy(isFetchingLocation = true, locationStatusMessage = null) }
+            when (val res = LocationHelper.fetchCurrentDoorLocation(context)) {
+                is LocationFetchResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            isFetchingLocation = false,
+                            detectedLocation = res.location,
+                            locationStatusMessage = null
+                        )
+                    }
+                }
+                is LocationFetchResult.PermissionMissing -> {
+                    _uiState.update {
+                        it.copy(
+                            isFetchingLocation = false,
+                            locationStatusMessage = "Location permission required for live doorstep dispatch."
+                        )
+                    }
+                }
+                is LocationFetchResult.Unavailable -> {
+                    _uiState.update {
+                        it.copy(
+                            isFetchingLocation = false,
+                            locationStatusMessage = res.reason
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun autoFetchLocationAndPromptDoor(
-        context: Context,
-        promptForHomeAddressAfterFetch: Boolean = true
+        @Suppress("UNUSED_PARAMETER") context: Context? = null,
+        @Suppress("UNUSED_PARAMETER") promptForHomeAddressAfterFetch: Boolean = false
     ) {
-        if (_isFetchingLocation.value) return
-        _hasAttemptedLoginLocationFetch.value = true
-        viewModelScope.launch {
-            _isFetchingLocation.value = true
-            try {
-                when (val res = LocationHelper.fetchCurrentDoorLocation(context.applicationContext)) {
-                    is LocationFetchResult.Success -> {
-                        _detectedLocation.value = res.location
-                        _locationErrorMessage.value = null
-                        if (promptForHomeAddressAfterFetch) {
-                            _showDoorAddressPrompt.value = true
-                        } else {
-                            _statusBanner.value = "GPS coordinates locked: ${res.location.formattedCoordinates()} (${res.location.localityName})"
-                        }
-                    }
-                    is LocationFetchResult.PermissionMissing -> {
-                        _locationErrorMessage.value = "Location permission is required to read live GPS coordinates."
-                        if (promptForHomeAddressAfterFetch) {
-                            _showDoorAddressPrompt.value = true
-                        }
-                    }
-                    is LocationFetchResult.Unavailable -> {
-                        _locationErrorMessage.value = res.reason
-                        if (promptForHomeAddressAfterFetch) {
-                            _showDoorAddressPrompt.value = true
-                        } else {
-                            _statusBanner.value = res.reason
-                        }
-                    }
-                }
-            } finally {
-                _isFetchingLocation.value = false
+        autoFetchDeviceLocation(silent = false)
+    }
+
+    fun seedInitialLocation(location: DetectedDoorLocation?) {
+        if (location != null && _uiState.value.detectedLocation == null) {
+            _uiState.update { it.copy(detectedLocation = location) }
+        }
+    }
+
+    fun updatePinnedLocation(location: DetectedDoorLocation) {
+        if (location.hasValidCoordinates) {
+            _uiState.update {
+                it.copy(
+                    detectedLocation = location,
+                    locationStatusMessage = null
+                )
             }
         }
     }
 
-    fun toggleServiceSelection(serviceId: String) {
-        val current = _selectedServiceIds.value.toMutableSet()
-        if (current.contains(serviceId)) current.remove(serviceId) else current.add(serviceId)
-        _selectedServiceIds.value = current
-        _selectedStartHour.value = null
-    }
-
-    fun ensureServiceSelected(serviceId: String) {
-        val current = _selectedServiceIds.value.toMutableSet()
-        current.add(serviceId)
-        _selectedServiceIds.value = current
-    }
-
-    fun clearSelectedServices() {
-        _selectedServiceIds.value = emptySet()
-        _selectedBarberId.value = null
-        _selectedStartHour.value = null
-    }
-
-    fun selectBarber(barberId: String?) {
-        _selectedBarberId.value = barberId
-        _selectedStartHour.value = null
-    }
-
-    fun selectAddress(addressId: String?) {
-        _selectedAddressId.value = addressId
-    }
-
-    fun selectDate(dateKey: String) {
-        _selectedDateKey.value = dateKey
-        _selectedStartHour.value = null
-    }
-
-    fun selectStartHour(hour: Long?) {
-        _selectedStartHour.value = hour
-    }
-
-    fun todayDateKey(): String = defaultTodayDateKey()
-
-    fun tomorrowDateKey(): String = defaultTomorrowDateKey()
-
-    fun upcomingDateOptions(daysCount: Int = 14): List<Pair<String, String>> {
-        val fmtKey = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val fmtLabel = SimpleDateFormat("EEE, dd MMM", Locale.US)
-        val cal = Calendar.getInstance()
-        return (0 until daysCount).map { offset ->
-            if (offset > 0) cal.add(Calendar.DAY_OF_YEAR, 1)
-            fmtKey.format(cal.time) to fmtLabel.format(cal.time)
-        }
-    }
-
-    /**
-     * Resolves the Booking Confirmation Fee paid now by the customer (default ₹30, configurable by Admin).
-     */
-    fun calculateBookingConfirmationFeePaise(serviceSubtotalPaise: Long, config: PlatformConfig): Long {
-        return config.effectiveCustomerBookingFeePaise(serviceSubtotalPaise)
-    }
-
-    /**
-     * Resolves any optional partner commission recorded for analytics/settlement.
-     */
-    fun calculateBarberCommissionPaise(barberPayablePaise: Long, config: PlatformConfig): Long {
-        return when {
-            config.bookingFeeType == "BARBER_FLAT_FEE" ->
-                config.barberFlatFeePaise.coerceIn(0L, barberPayablePaise)
-            config.barberCommissionBps > 0L ->
-                ((barberPayablePaise * config.barberCommissionBps) / 10000L).coerceIn(0L, barberPayablePaise)
-            else -> 0L
-        }
-    }
-
-    fun availableSlotsForBarber(
-        barber: BarberProfile,
-        dateKey: String,
-        activeLocks: List<SlotLock>,
-        locallyBlockedSlots: Set<String> = emptySet(),
-        unavailableDates: Set<String> = emptySet()
-    ): List<Long> {
-        if (!barber.isOnline || barber.approvalStatus != "APPROVED") return emptyList()
-        if (unavailableDates.contains(dateKey)) return emptyList()
-        val lockedHours = activeLocks
-            .filter { it.barberId == barber.barberId && it.dateKey == dateKey && (it.status == "HELD" || it.status == "CONFIRMED") }
-            .map { it.hourSlot }
-            .toSet()
-
-        val slots = mutableListOf<Long>()
-        for (h in barber.workStartHour until barber.workEndHour) {
-            val isBreak = h >= barber.breakStartHour && h < barber.breakEndHour
-            val isLocallyBlocked = locallyBlockedSlots.contains("${dateKey}_$h")
-            if (!isBreak && !lockedHours.contains(h) && !isLocallyBlocked) {
-                slots.add(h)
-            }
-        }
-        return slots
-    }
-
-    fun loadProtectedAddress(bookingId: String) {
-        if (_protectedAddresses.value.containsKey(bookingId)) return
-        viewModelScope.launch {
-            try {
-                val priv = repository.getProtectedBookingAddress(bookingId)
-                if (priv != null) {
-                    _protectedAddresses.value = _protectedAddresses.value + (bookingId to priv)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Protected address not accessible: ${e.message}")
+    fun syncBarberHubLocation(location: DetectedDoorLocation, updateShopAddress: Boolean = false) {
+        if (!location.hasValidCoordinates) return
+        _uiState.update { it.copy(detectedLocation = location, locationStatusMessage = null) }
+        if (_uiState.value.isAuthenticated && _uiState.value.ownBarberProfile != null) {
+            viewModelScope.launch {
+                repo.updateBarberProfileLocation(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    shopAddress = if (updateShopAddress) location.streetArea else null
+                )
             }
         }
     }
 
-    // --- Actions ---
-
-    fun updateProfile(name: String, phone: String) = runAction("Profile updated") {
-        repository.updateOwnProfile(name, phone)
+    fun confirmDoorAddressSetup(draft: PendingDoorAddressDraft, onSaved: (() -> Unit)? = null) {
+        _uiState.update { it.copy(pendingDoorDraft = draft) }
+        if (_uiState.value.isAuthenticated) {
+            val matchedArea = _uiState.value.serviceAreas.firstOrNull {
+                it.postalCodes.contains(draft.postalCode.trim())
+            } ?: _uiState.value.serviceAreas.firstOrNull()
+            saveNewAddress(
+                label = draft.label,
+                flatHouse = draft.combinedFlatHouse(),
+                streetArea = draft.streetArea,
+                landmark = draft.landmark,
+                postalCode = draft.postalCode,
+                matchedArea = matchedArea,
+                instructions = draft.accessInstructions,
+                latitude = draft.latitude,
+                longitude = draft.longitude,
+                onSuccess = onSaved
+            )
+        } else {
+            onSaved?.invoke()
+        }
     }
 
-    fun applyAsBarber(
-        name: String,
+    // --- Role-Locked Portal & Onboarding ---
+
+    fun switchPortal(portal: ActivePortal) {
+        val currentRole = _uiState.value.userAccount?.role
+        // Only ADMIN can inspect cross-portals; CUSTOMER and BARBER stay in their dedicated role experience
+        if (currentRole == "ADMIN") {
+            _uiState.update { it.copy(activePortal = portal) }
+        }
+    }
+
+    fun completeOnboarding(
+        fullName: String,
         phone: String,
-        bio: String,
+        dob: String,
+        age: Long,
+        gender: String,
+        selectedRole: String,
+        servesLadies: Boolean,
+        servesMen: Boolean,
         experienceYears: Long,
         upiId: String,
-        shopName: String,
-        shopAddress: String,
-        skillsText: String,
-        serviceIds: List<String>,
-        serviceAreaIds: List<String>
-    ) = runAction("Barber & Shop application submitted for Admin approval") {
-        val parsedSkills = skillsText.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        repository.applyToBecomeBarber(
-            name = name,
-            phone = phone,
-            bio = bio,
-            experienceYears = experienceYears,
-            upiId = upiId,
-            shopName = shopName,
-            shopAddress = shopAddress,
-            skills = parsedSkills.ifEmpty { listOf("Precision Haircut", "Skin Fade", "Beard Sculpt") },
-            serviceIds = serviceIds,
-            serviceAreaIds = serviceAreaIds
-        )
+        primaryArea: String,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val state = _uiState.value
+            val lat = state.detectedLocation?.latitude ?: 0.0
+            val lon = state.detectedLocation?.longitude ?: 0.0
+            val catalogIds = state.services.ifEmpty { canonicalGroomingCatalog() }.map { it.id }
+
+            val res = repo.completeUserOnboarding(
+                fullName = fullName,
+                phone = phone,
+                dob = dob,
+                age = age,
+                gender = gender,
+                selectedRole = selectedRole,
+                servesLadies = servesLadies,
+                servesMen = servesMen,
+                experienceYears = experienceYears,
+                upiId = upiId,
+                primaryArea = primaryArea.ifBlank { state.detectedLocation?.localityName.orEmpty() },
+                latitude = lat,
+                longitude = lon,
+                defaultServiceIds = catalogIds
+            )
+            _uiState.update { s ->
+                val nextPortal = if (selectedRole == "BARBER") ActivePortal.BARBER else ActivePortal.CUSTOMER
+                s.copy(
+                    isBusy = false,
+                    activePortal = if (res.isSuccess && s.userAccount?.role != "ADMIN") nextPortal else s.activePortal,
+                    bookingRecipientGender = gender,
+                    bookingRecipientAge = age,
+                    preferLadyBarber = gender == "FEMALE",
+                    snackbarMessage = res.fold(
+                        onSuccess = {
+                            if (selectedRole == "BARBER") {
+                                "Welcome Partner! Your Barber Mode dashboard is live."
+                            } else {
+                                "Welcome to DoorCut! Ready to book your home appointment."
+                            }
+                        },
+                        onFailure = { "Could not complete profile setup: ${it.localizedMessage}" }
+                    )
+                )
+            }
+            if (res.isSuccess) {
+                onComplete()
+            }
+        }
     }
 
-    fun savePendingDoorDraft(
-        draft: PendingDoorAddressDraft,
-        areas: List<ServiceArea>
+    fun clearSnackbar() {
+        _uiState.update { it.copy(snackbarMessage = null) }
+    }
+
+    fun showMessage(msg: String) {
+        _uiState.update { it.copy(snackbarMessage = msg) }
+    }
+
+    fun toggleServiceInCart(serviceId: String) {
+        _uiState.update { state ->
+            val updated = if (state.selectedServiceIds.contains(serviceId)) {
+                state.selectedServiceIds - serviceId
+            } else {
+                state.selectedServiceIds + serviceId
+            }
+            // Auto-check Ladies Styling service -> default Female + Lady Stylist preference
+            val catalog = state.services.ifEmpty { canonicalGroomingCatalog() }
+            val hasLadiesSvc = catalog.any { updated.contains(it.id) && it.category == "LADIES_STYLING" }
+            state.copy(
+                selectedServiceIds = updated,
+                bookingRecipientGender = if (hasLadiesSvc) "FEMALE" else state.bookingRecipientGender,
+                preferLadyBarber = if (hasLadiesSvc) true else state.preferLadyBarber
+            )
+        }
+    }
+
+    fun setBookingDateAndHour(dateKey: String, hour: Long) {
+        _uiState.update { it.copy(selectedDateKey = dateKey, selectedStartHour = hour) }
+    }
+
+    fun setBookingMode(mode: String) {
+        _uiState.update { it.copy(bookingMode = if (mode == "SCHEDULED") "SCHEDULED" else "ASAP") }
+    }
+
+    fun setRecipientPreferences(gender: String, age: Long, preferLadyBarber: Boolean) {
+        _uiState.update {
+            it.copy(
+                bookingRecipientGender = gender,
+                bookingRecipientAge = age.coerceIn(1L, 110L),
+                preferLadyBarber = if (gender == "FEMALE") preferLadyBarber else false
+            )
+        }
+    }
+
+    fun selectAddress(addressId: String) {
+        _uiState.update { it.copy(selectedAddressId = addressId) }
+    }
+
+    fun repeatCompletedBooking(pastBooking: Booking, onReadyToBook: () -> Unit) {
+        val validIds = pastBooking.serviceIds.toSet()
+        if (validIds.isNotEmpty()) {
+            _uiState.update { state ->
+                state.copy(
+                    selectedServiceIds = validIds,
+                    bookingRecipientGender = pastBooking.customerGender.ifBlank { state.bookingRecipientGender },
+                    bookingRecipientAge = pastBooking.customerAge.takeIf { it > 0L } ?: state.bookingRecipientAge,
+                    preferLadyBarber = pastBooking.preferLadyBarber
+                )
+            }
+            onReadyToBook()
+        }
+    }
+
+    fun signOut() {
+        repo.signOut()
+    }
+
+    // --- Profile & Door Address Persistence ---
+
+    fun updateProfileContact(name: String, phone: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.updateUserContact(name, phone)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Profile updated" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun saveNewAddress(
+        label: String,
+        flatHouse: String,
+        streetArea: String,
+        landmark: String,
+        postalCode: String,
+        matchedArea: ServiceArea?,
+        instructions: String,
+        latitude: Double = 0.0,
+        longitude: Double = 0.0,
+        onSuccess: (() -> Unit)? = null
     ) {
-        saveAddress(
-            label = draft.label,
-            flatHouse = draft.combinedFlatHouse(),
-            streetArea = draft.streetArea,
-            landmark = draft.landmark,
-            postalCode = draft.postalCode,
-            accessInstructions = draft.accessInstructions,
-            isDefault = true,
-            areas = areas,
-            latitude = draft.latitude.takeIf { it != 0.0 } ?: _detectedLocation.value?.latitude ?: 0.0,
-            longitude = draft.longitude.takeIf { it != 0.0 } ?: _detectedLocation.value?.longitude ?: 0.0
-        )
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.saveCustomerAddress(
+                label = label,
+                flatHouse = flatHouse,
+                streetArea = streetArea,
+                landmark = landmark,
+                postalCode = postalCode,
+                serviceArea = matchedArea,
+                accessInstructions = instructions,
+                isDefault = _uiState.value.savedAddresses.isEmpty(),
+                latitude = latitude,
+                longitude = longitude
+            )
+            _uiState.update { state ->
+                state.copy(
+                    isBusy = false,
+                    selectedAddressId = res.getOrNull() ?: state.selectedAddressId,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Door address & live GPS pin saved" },
+                        onFailure = { err -> "Could not save address: ${err.localizedMessage}" }
+                    )
+                )
+            }
+            if (res.isSuccess) onSuccess?.invoke()
+        }
     }
 
     fun saveAddress(
@@ -480,201 +637,643 @@ class MarketplaceViewModel(
         landmark: String,
         postalCode: String,
         accessInstructions: String,
-        isDefault: Boolean,
-        areas: List<ServiceArea>,
-        latitude: Double = _detectedLocation.value?.latitude ?: 0.0,
-        longitude: Double = _detectedLocation.value?.longitude ?: 0.0
-    ) = runAction("Home door address & coordinates saved! Showing nearest barbers & shops.") {
-        val cleanPin = postalCode.trim().ifBlank { "560038" }
-        val matchedArea = areas.firstOrNull { it.postalCodes.contains(cleanPin) } ?: areas.firstOrNull()
-        val areaId = matchedArea?.id ?: "zone_central"
-        val areaName = matchedArea?.name ?: "Local Home Zone ($cleanPin)"
-        val newId = repository.saveCustomerAddress(
+        @Suppress("UNUSED_PARAMETER") isDefault: Boolean = false,
+        areas: List<ServiceArea> = emptyList(),
+        latitude: Double = 0.0,
+        longitude: Double = 0.0
+    ) {
+        val matched = areas.firstOrNull { it.postalCodes.contains(postalCode.trim()) }
+            ?: areas.firstOrNull()
+            ?: _uiState.value.serviceAreas.firstOrNull()
+        saveNewAddress(
             label = label,
             flatHouse = flatHouse,
             streetArea = streetArea,
             landmark = landmark,
-            postalCode = cleanPin,
-            serviceAreaId = areaId,
-            serviceAreaName = areaName,
-            accessInstructions = accessInstructions,
-            isDefault = isDefault,
+            postalCode = postalCode,
+            matchedArea = matched,
+            instructions = accessInstructions,
             latitude = latitude,
             longitude = longitude
         )
-        _selectedAddressId.value = newId
-        _showDoorAddressPrompt.value = false
     }
 
-    fun deleteAddress(addressId: String) = runAction("Address removed") {
-        repository.deleteCustomerAddress(addressId)
-    }
-
-    fun confirmCustomerBooking(
-        customerName: String,
-        customerPhone: String,
-        barber: BarberProfile,
-        selectedServices: List<CatalogService>,
-        address: CustomerAddress,
-        travelChargePaise: Long,
-        platformBookingFeePaise: Long,
-        barberCommissionPaise: Long,
-        dateKey: String,
-        startHour: Long,
-        customerNotes: String,
-        policySnapshot: String,
-        bookingFeeTxRef: String = "",
-        onSuccess: (String) -> Unit
-    ) {
-        if (_isBusy.value) return
+    fun deleteAddress(addressId: String) {
         viewModelScope.launch {
-            _isBusy.value = true
-            try {
-                val bookingId = repository.createBookingWithSlotLock(
-                    customerName = customerName,
-                    customerPhone = customerPhone,
-                    barber = barber,
-                    selectedServices = selectedServices,
-                    address = address,
-                    travelChargePaise = travelChargePaise,
-                    barberCommissionPaise = barberCommissionPaise,
-                    dateKey = dateKey,
-                    startHour = startHour,
-                    customerNotes = customerNotes,
-                    policySnapshot = policySnapshot,
-                    platformBookingFeePaise = platformBookingFeePaise,
-                    bookingFeeTxRef = bookingFeeTxRef
+            repo.deleteCustomerAddress(addressId)
+        }
+    }
+
+    // --- Open-Dispatch Booking Confirmation (Customer Never Selects Barber Manually) ---
+
+    fun confirmOpenDispatchBooking(
+        customerPhone: String,
+        customerNotes: String,
+        bookingFeeTxRef: String,
+        onBookingCreated: (String) -> Unit
+    ) {
+        val state = _uiState.value
+        val servicesToBook = state.selectedServices
+
+        var address = state.savedAddresses.firstOrNull { it.id == state.selectedAddressId }
+            ?: state.savedAddresses.firstOrNull()
+
+        if (servicesToBook.isEmpty()) {
+            showMessage("Please select at least one grooming service.")
+            return
+        }
+
+        val cleanPhone = customerPhone.trim().ifBlank { state.userAccount?.phone.orEmpty() }
+        if (cleanPhone.length < 8) {
+            showMessage("Please provide a valid phone number so your appointed barber can contact you.")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+
+            if (address == null && state.pendingDoorDraft != null) {
+                val draft = state.pendingDoorDraft
+                val matchedArea = state.serviceAreas.firstOrNull {
+                    it.postalCodes.contains(draft.postalCode.trim())
+                } ?: state.serviceAreas.firstOrNull()
+                val savedId = repo.saveCustomerAddress(
+                    label = draft.label,
+                    flatHouse = draft.combinedFlatHouse(),
+                    streetArea = draft.streetArea,
+                    landmark = draft.landmark,
+                    postalCode = draft.postalCode,
+                    serviceArea = matchedArea,
+                    accessInstructions = draft.accessInstructions,
+                    isDefault = true,
+                    latitude = draft.latitude,
+                    longitude = draft.longitude
+                ).getOrNull()
+                address = CustomerAddress(
+                    id = savedId.orEmpty(),
+                    customerId = state.uid.orEmpty(),
+                    label = draft.label,
+                    flatHouse = draft.combinedFlatHouse(),
+                    streetArea = draft.streetArea,
+                    landmark = draft.landmark,
+                    postalCode = draft.postalCode,
+                    serviceAreaId = matchedArea?.id.orEmpty(),
+                    serviceAreaName = matchedArea?.name ?: draft.streetArea,
+                    accessInstructions = draft.accessInstructions,
+                    isDefault = true,
+                    latitude = draft.latitude,
+                    longitude = draft.longitude
                 )
-                clearSelectedServices()
-                _statusBanner.value = "Booking confirmed! Waiting for ${barber.name} to confirm your slot."
-                onSuccess(bookingId)
-            } catch (e: Exception) {
-                _statusBanner.value = e.localizedMessage ?: "Booking could not be confirmed"
-            } finally {
-                _isBusy.value = false
+            }
+
+            val finalAddress = address
+            if (finalAddress == null) {
+                _uiState.update {
+                    it.copy(isBusy = false, snackbarMessage = "Please confirm your flat/house address before booking.")
+                }
+                return@launch
+            }
+
+            if (state.userAccount?.phone.isNullOrBlank()) {
+                repo.updateUserContact(state.userAccount?.name.orEmpty().ifBlank { repo.currentDisplayName() }, cleanPhone)
+            }
+
+            val area = state.serviceAreas.firstOrNull { it.id == finalAddress.serviceAreaId }
+                ?: state.serviceAreas.firstOrNull { it.postalCodes.contains(finalAddress.postalCode) }
+
+            val res = repo.createOpenDispatchBooking(
+                customerName = state.userAccount?.name?.ifBlank { repo.currentDisplayName() } ?: repo.currentDisplayName(),
+                customerPhone = cleanPhone,
+                customerGender = state.bookingRecipientGender,
+                customerAge = state.bookingRecipientAge,
+                preferLadyBarber = state.preferLadyBarber,
+                bookingMode = state.bookingMode,
+                selectedServices = servicesToBook,
+                address = finalAddress,
+                serviceArea = area,
+                dateKey = state.selectedDateKey,
+                startHour = state.selectedStartHour,
+                customerNotes = customerNotes,
+                bookingFeeTxRef = bookingFeeTxRef,
+                config = state.platformConfig
+            )
+
+            _uiState.update { current ->
+                current.copy(
+                    isBusy = false,
+                    selectedServiceIds = if (res.isSuccess) emptySet() else current.selectedServiceIds,
+                    snackbarMessage = res.fold(
+                        onSuccess = {
+                            if (current.preferLadyBarber) {
+                                "Request live! Broadcasting to nearby verified Lady Hair Stylists."
+                            } else {
+                                "Request live! Broadcasting to nearby verified Barbers."
+                            }
+                        },
+                        onFailure = { err -> err.localizedMessage ?: "Could not dispatch booking." }
+                    )
+                )
+            }
+
+            res.getOrNull()?.let { bookingId ->
+                onBookingCreated(bookingId)
             }
         }
     }
 
-    fun repeatBooking(booking: Booking) {
-        _selectedServiceIds.value = booking.serviceIds.toSet()
-        _selectedBarberId.value = booking.barberId
-        _statusBanner.value = "Selected ${booking.serviceNamesSummary}. Choose your date & time!"
+    fun cancelBooking(booking: Booking, reason: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.cancelBooking(booking, reason)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Booking ${booking.bookingNumber} cancelled" },
+                        onFailure = { err -> "Cancel failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
     }
 
-    fun customerCancelBooking(booking: Booking, reason: String) = runAction("Booking cancelled & slot released") {
-        repository.customerCancelBooking(booking, reason)
+    fun respondToExtraServiceRequest(booking: Booking, approve: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.customerRespondToAddOn(booking, approve, _uiState.value.platformConfig)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { if (approve) "Extra service approved" else "Extra service declined" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
     }
 
-    fun customerRespondExtraService(booking: Booking, approve: Boolean) =
-        runAction(if (approve) "Extra service approved & barber payable updated" else "Extra service declined") {
-            val bps = platformConfigState.value.barberCommissionBps.let { if (it > 0L) it else 1500L }
-            repository.customerRespondToExtraService(booking, approve, bps)
+    fun confirmOrDisputeDirectPayment(bookingId: String, confirmed: Boolean) {
+        viewModelScope.launch {
+            val res = repo.customerConfirmOrDisputeDirectPayment(bookingId, confirmed)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { if (confirmed) "Direct payment confirmed" else "Dispute reported to Support" },
+                        onFailure = { err -> "Error: ${err.localizedMessage}" }
+                    )
+                )
+            }
         }
+    }
 
-    fun customerVerifyDirectPayment(bookingId: String, confirmPaid: Boolean, disputeReason: String = "") =
-        runAction(if (confirmPaid) "Direct payment confirmed!" else "Payment dispute escalated to Admin") {
-            repository.customerVerifyDirectPayment(bookingId, confirmPaid, disputeReason)
+    fun submitReview(booking: Booking, rating: Int, comment: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.submitReview(booking, rating, comment)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Thank you for rating ${booking.barberName}!" },
+                        onFailure = { err -> "Could not submit review: ${err.localizedMessage}" }
+                    )
+                )
+            }
         }
+    }
 
-    fun submitReview(booking: Booking, customerName: String, rating: Long, comment: String) =
-        runAction("Thank you! Your review has been published.") {
-            repository.submitCustomerReview(booking, customerName, rating, comment)
+    // --- Barber Open-Dispatch Claiming, Live GPS Streaming & Job Lifecycle ---
+
+    fun barberClaimOpenBooking(booking: Booking, onClaimed: ((String) -> Unit)? = null) {
+        val state = _uiState.value
+        val profile = state.ownBarberProfile
+        if (profile == null) {
+            showMessage("Complete your Barber Partner profile first to accept customer requests.")
+            return
         }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val liveLat = state.detectedLocation?.latitude ?: profile.latitude
+            val liveLon = state.detectedLocation?.longitude ?: profile.longitude
+            val res = repo.barberClaimOpenBooking(
+                bookingId = booking.id,
+                barberProfile = profile,
+                liveLat = liveLat,
+                liveLon = liveLon
+            )
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Appointment ${booking.bookingNumber} accepted! Customer door address & phone unlocked." },
+                        onFailure = { err -> err.localizedMessage ?: "Unable to accept request." }
+                    )
+                )
+            }
+            if (res.isSuccess) {
+                loadProtectedAddressForJob(booking.id)
+                onClaimed?.invoke(booking.id)
+            }
+        }
+    }
 
-    fun createSupportTicket(
+    fun updateBarberLiveLocation(bookingId: String, latitude: Double, longitude: Double) {
+        viewModelScope.launch {
+            repo.barberUpdateLiveLocation(bookingId, latitude, longitude)
+        }
+    }
+
+    fun applyOrUpdateBarberProfile(
+        name: String,
+        phone: String,
+        gender: String = "MALE",
+        servesLadies: Boolean = false,
+        servesMen: Boolean = true,
+        bio: String,
+        experienceYears: Long,
+        selectedServiceIds: List<String>,
+        selectedAreaIds: List<String>,
+        workStartHour: Long,
+        workEndHour: Long,
+        upiId: String,
+        shopName: String = "",
+        shopAddress: String = "",
+        latitude: Double? = null,
+        longitude: Double? = null,
+        workingDays: List<String>? = null,
+        breakStartHour: Long? = null,
+        breakEndHour: Long? = null,
+        travelBufferMinutes: Long? = null
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val existing = _uiState.value.ownBarberProfile
+            val lat = latitude?.takeIf { it != 0.0 }
+                ?: _uiState.value.detectedLocation?.latitude?.takeIf { it != 0.0 }
+                ?: existing?.latitude
+                ?: 0.0
+            val lon = longitude?.takeIf { it != 0.0 }
+                ?: _uiState.value.detectedLocation?.longitude?.takeIf { it != 0.0 }
+                ?: existing?.longitude
+                ?: 0.0
+            val res = repo.applyOrSaveBarberProfile(
+                name = name,
+                phone = phone,
+                gender = gender,
+                servesLadies = servesLadies,
+                servesMen = servesMen,
+                bio = bio,
+                experienceYears = experienceYears,
+                serviceIds = selectedServiceIds,
+                serviceAreaIds = selectedAreaIds,
+                workStartHour = workStartHour,
+                workEndHour = workEndHour,
+                upiId = upiId,
+                shopName = shopName,
+                shopAddress = shopAddress,
+                latitude = lat,
+                longitude = lon,
+                workingDays = workingDays ?: existing?.workingDays ?: listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
+                breakStartHour = breakStartHour ?: existing?.breakStartHour ?: 13L,
+                breakEndHour = breakEndHour ?: existing?.breakEndHour ?: 14L,
+                travelBufferMinutes = travelBufferMinutes ?: existing?.travelBufferMinutes ?: 15L
+            )
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Barber Partner profile & hub settings saved" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun toggleBarberOnline(online: Boolean) {
+        viewModelScope.launch {
+            val lat = _uiState.value.detectedLocation?.latitude ?: 0.0
+            val lon = _uiState.value.detectedLocation?.longitude ?: 0.0
+            repo.toggleBarberOnline(online, lat, lon)
+        }
+    }
+
+    fun barberRespondToRequest(booking: Booking, accept: Boolean, reason: String = "") {
+        if (booking.isOpenDispatch && accept) {
+            barberClaimOpenBooking(booking)
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.barberRespondToBooking(booking, accept, reason)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { if (accept) "Appointment confirmed" else "Appointment declined" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun barberAdvanceTripStatus(bookingId: String, nextStatus: String) {
+        viewModelScope.launch {
+            val lat = _uiState.value.detectedLocation?.latitude ?: 0.0
+            val lon = _uiState.value.detectedLocation?.longitude ?: 0.0
+            val res = repo.barberUpdateTripStatus(bookingId, nextStatus, lat, lon)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Status updated to ${nextStatus.replace('_', ' ')}" },
+                        onFailure = { err -> "Update failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun loadProtectedAddressForJob(bookingId: String) {
+        viewModelScope.launch {
+            repo.fetchProtectedBookingAddress(bookingId).getOrNull()?.let { priv ->
+                _uiState.update { state ->
+                    state.copy(unlockedAddresses = state.unlockedAddresses + (bookingId to priv))
+                }
+            }
+        }
+    }
+
+    fun barberRequestExtraService(bookingId: String, service: CatalogService) {
+        viewModelScope.launch {
+            val res = repo.barberRequestExtraService(bookingId, service)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Sent ${service.name} approval request to customer" },
+                        onFailure = { err -> "Request failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun barberFinishAndDeclareDirectPayment(
+        bookingId: String,
+        declaredStatus: String,
+        method: String,
+        amountPaise: Long,
+        note: String,
+        markCompleted: Boolean = true
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.barberDeclareDirectPayment(
+                bookingId = bookingId,
+                declaredStatus = declaredStatus,
+                method = method,
+                amountPaise = amountPaise,
+                referenceNote = note,
+                markCompleted = markCompleted
+            )
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = {
+                            if (markCompleted) "Visit completed & direct payment logged"
+                            else "Direct payment record saved"
+                        },
+                        onFailure = { err -> "Could not record payment: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    // --- Support Tickets ---
+
+    fun raiseSupportTicket(
         creatorRole: String,
         bookingId: String,
         category: String,
         subject: String,
         description: String
-    ) = runAction("Support ticket submitted") {
-        repository.createSupportTicket(creatorRole, bookingId, category, subject, description)
-    }
-
-    // --- Barber Actions ---
-
-    fun barberToggleOnline(isOnline: Boolean) =
-        runAction(if (isOnline) "You are now Online and receiving booking requests" else "You are now Offline") {
-            repository.setBarberOnlineStatus(isOnline)
-        }
-
-    fun barberRespond(booking: Booking, accept: Boolean, reason: String = "") =
-        runAction(if (accept) "Booking accepted! Customer notified." else "Request declined & time slot released") {
-            repository.barberRespondToBooking(booking, accept, reason)
-        }
-
-    fun barberAdvanceTripStatus(bookingId: String, nextStatus: String) =
-        runAction(
-            when (nextStatus) {
-                "ON_THE_WAY" -> "Marked On My Way — customer notified"
-                "ARRIVED" -> "Marked Arrived at customer's home"
-                "IN_PROGRESS" -> "Service started"
-                "COMPLETED" -> "Service marked completed! Now record direct payment below."
-                else -> "Status updated"
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.createSupportTicket(creatorRole, bookingId, category, subject, description)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Support ticket submitted" },
+                        onFailure = { err -> "Could not submit ticket: ${err.localizedMessage}" }
+                    )
+                )
             }
-        ) {
-            repository.barberUpdateExecutionStatus(bookingId, nextStatus)
         }
-
-    fun barberFinishService(bookingId: String) = barberAdvanceTripStatus(bookingId, "COMPLETED")
-
-    fun barberRequestExtraService(bookingId: String, service: CatalogService) =
-        runAction("Sent ${service.name} approval request to customer") {
-            repository.barberRequestExtraService(bookingId, service)
-        }
-
-    fun barberRecordDirectPayment(
-        bookingId: String,
-        declaredStatus: String,
-        method: String,
-        amountReceivedPaise: Long,
-        referenceNote: String
-    ) = runAction("Direct payment record saved separately from completion history") {
-        repository.barberRecordDirectPayment(bookingId, declaredStatus, method, amountReceivedPaise, referenceNote)
     }
 
-    fun barberSaveSchedule(
-        isOnline: Boolean,
+    // --- Admin Operations ---
+
+    fun adminApproveOrSuspendBarber(barberId: String, status: String, reason: String) {
+        viewModelScope.launch {
+            val res = repo.adminSetBarberApproval(barberId, status, reason)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Barber status set to $status (audit logged)" },
+                        onFailure = { err -> "Admin error: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun adminSaveService(
+        id: String?,
+        name: String,
+        category: String,
+        description: String,
+        priceRupees: Long,
+        durationMinutes: Long,
+        isPackage: Boolean,
+        isActive: Boolean
+    ) {
+        viewModelScope.launch {
+            val res = repo.adminUpsertService(
+                id, name, category, description, priceRupees, durationMinutes, isPackage, isActive
+            )
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Service $name saved" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun adminSaveZone(
+        id: String?,
+        name: String,
+        pinsCsv: String,
+        travelRupees: Long,
+        maxKm: Long,
+        isActive: Boolean
+    ) {
+        viewModelScope.launch {
+            val res = repo.adminUpsertServiceArea(id, name, pinsCsv, travelRupees, maxKm, isActive)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Service area $name saved" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun adminOverrideBooking(
+        booking: Booking,
+        newStatus: String,
+        newBarber: BarberProfile?,
+        markBarberCommissionSettled: Boolean,
+        reason: String
+    ) {
+        viewModelScope.launch {
+            val res = repo.adminOverrideBooking(booking, newStatus, newBarber, markBarberCommissionSettled, reason)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Booking ${booking.bookingNumber} updated" },
+                        onFailure = { err -> "Override failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun adminResolveTicket(ticketId: String, resolution: String) {
+        viewModelScope.launch {
+            val res = repo.adminResolveTicket(ticketId, resolution)
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Ticket resolved" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun adminSavePlatformConfig(
+        feeType: String,
+        barberCommissionPercent: Long,
+        barberFlatFeeRupees: Long,
+        cutoffHours: Long,
+        policyText: String
+    ) {
+        viewModelScope.launch {
+            val res = repo.adminSavePlatformConfig(
+                feeType = feeType,
+                barberCommissionPercent = barberCommissionPercent,
+                barberFlatFeeRupees = barberFlatFeeRupees,
+                cutoffHours = cutoffHours,
+                policyText = policyText
+            )
+            _uiState.update {
+                it.copy(
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Platform config updated" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun upcomingDateOptions(days: Int = 10): List<Pair<String, String>> {
+        val labelFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM", Locale.US)
+        val today = LocalDate.now()
+        return (0 until days).map { offset ->
+            val d = today.plusDays(offset.toLong())
+            val prefix = when (offset) {
+                0 -> "Today · "
+                1 -> "Tomorrow · "
+                else -> ""
+            }
+            d.toString() to "$prefix${d.format(labelFormatter)}"
+        }
+    }
+
+    fun barberSaveScheduleAndProfile(
         workStartHour: Long,
         workEndHour: Long,
-        breakStartHour: Long,
-        breakEndHour: Long,
-        travelBufferMinutes: Long,
         upiId: String,
         shopName: String,
         shopAddress: String,
-        skillsText: String,
         serviceIds: List<String>,
-        workingDays: List<String> = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
-    ) = runAction("Working hours, travel buffer & profile saved") {
-        val parsedSkills = skillsText.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        repository.updateBarberScheduleAndAvailability(
-            isOnline = isOnline,
+        servesLadies: Boolean? = null,
+        servesMen: Boolean? = null,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        workingDays: List<String>? = null,
+        breakStartHour: Long? = null,
+        breakEndHour: Long? = null,
+        travelBufferMinutes: Long? = null,
+        bio: String? = null,
+        experienceYears: Long? = null,
+        serviceAreaIds: List<String>? = null
+    ) {
+        val prof = _uiState.value.ownBarberProfile
+        val account = _uiState.value.userAccount
+        applyOrUpdateBarberProfile(
+            name = prof?.name?.ifBlank { account?.name.orEmpty() } ?: account?.name.orEmpty(),
+            phone = prof?.phone?.ifBlank { account?.phone.orEmpty() } ?: account?.phone.orEmpty(),
+            gender = prof?.gender?.ifBlank { account?.gender ?: "MALE" } ?: (account?.gender ?: "MALE"),
+            servesLadies = servesLadies ?: prof?.servesLadies ?: false,
+            servesMen = servesMen ?: prof?.servesMen ?: true,
+            bio = bio ?: prof?.bio.orEmpty().ifBlank { "Verified DoorCut Home Grooming Partner" },
+            experienceYears = experienceYears ?: prof?.experienceYears ?: 3L,
+            selectedServiceIds = serviceIds.ifEmpty {
+                _uiState.value.services.ifEmpty { canonicalGroomingCatalog() }.map { it.id }
+            },
+            selectedAreaIds = serviceAreaIds?.takeIf { it.isNotEmpty() }
+                ?: prof?.serviceAreaIds?.ifEmpty {
+                    _uiState.value.serviceAreas.map { it.id }.ifEmpty { listOf("zone_central") }
+                }
+                ?: listOf("zone_central"),
             workStartHour = workStartHour,
             workEndHour = workEndHour,
-            breakStartHour = breakStartHour,
-            breakEndHour = breakEndHour,
-            travelBufferMinutes = travelBufferMinutes,
             upiId = upiId,
             shopName = shopName,
             shopAddress = shopAddress,
-            skills = parsedSkills,
-            serviceIds = serviceIds,
-            workingDays = workingDays
+            latitude = latitude,
+            longitude = longitude,
+            workingDays = workingDays,
+            breakStartHour = breakStartHour,
+            breakEndHour = breakEndHour,
+            travelBufferMinutes = travelBufferMinutes
         )
     }
 
-    // --- Admin Actions ---
-
-    fun adminBootstrapCatalog() = runAction("Master catalog, verified barbers & ₹30 booking fee policy synced!") {
-        repository.adminBootstrapMasterCatalog()
+    fun adminBootstrapCatalog() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            repo.ensureInitialSeedDataIfEmpty()
+            _uiState.update { it.copy(isBusy = false, snackbarMessage = "Catalog & service areas verified") }
+        }
     }
 
-    fun adminSetBarberStatus(barberId: String, status: String, reason: String) =
-        runAction("Barber status updated to $status (Audited)") {
-            repository.adminSetBarberApproval(barberId, status, reason)
-        }
+    fun adminSetBarberStatus(barberId: String, status: String, reason: String) {
+        adminApproveOrSuspendBarber(barberId, status, reason)
+    }
 
     fun adminSaveService(
         serviceId: String?,
@@ -685,91 +1284,99 @@ class MarketplaceViewModel(
         durationMinutes: Long,
         isActive: Boolean,
         isPackage: Boolean,
-        instructions: String,
-        sortOrder: Long
-    ) = runAction("Catalog service saved (existing bookings keep snapshotted prices)") {
-        repository.adminSaveService(
-            serviceId = serviceId,
+        @Suppress("UNUSED_PARAMETER") instructions: String = "",
+        @Suppress("UNUSED_PARAMETER") sortOrder: Long = 1L
+    ) {
+        adminSaveService(
+            id = serviceId,
             name = name,
             category = category,
             description = description,
-            pricePaise = priceRupees * 100L,
+            priceRupees = priceRupees,
             durationMinutes = durationMinutes,
-            isActive = isActive,
             isPackage = isPackage,
-            instructions = instructions,
-            sortOrder = sortOrder
+            isActive = isActive
+        )
+    }
+
+    fun adminResolveTicket(
+        ticketId: String,
+        @Suppress("UNUSED_PARAMETER") status: String,
+        resolution: String
+    ) {
+        adminResolveTicket(ticketId, resolution)
+    }
+
+    fun adminOverrideBooking(
+        booking: Booking,
+        newStatus: String,
+        @Suppress("UNUSED_PARAMETER") newFeeStatus: String,
+        newDirectPaymentStatus: String,
+        replacementBarber: BarberProfile?,
+        reason: String
+    ) {
+        adminOverrideBooking(
+            booking = booking,
+            newStatus = newStatus,
+            newBarber = replacementBarber,
+            markBarberCommissionSettled = newDirectPaymentStatus == "CUSTOMER_CONFIRMED",
+            reason = reason
         )
     }
 
     fun adminSavePlatformPolicy(
         bookingFeeType: String,
         fixedBookingFeeRupees: Long,
-        percentageBookingFeeBps: Long = 0L,
-        barberCommissionBps: Long = 0L,
+        @Suppress("UNUSED_PARAMETER") percentageBookingFeeBps: Long,
+        barberCommissionBps: Long,
         cutoffHours: Long,
-        slotHoldMinutes: Long,
+        @Suppress("UNUSED_PARAMETER") slotHoldMinutes: Long,
         policyText: String,
-        maintenanceMode: Boolean
-    ) = runAction("Booking confirmation fee & cancellation policy updated") {
-        repository.adminUpdatePlatformConfig(
-            bookingFeeType = bookingFeeType,
-            fixedBookingFeePaise = fixedBookingFeeRupees * 100L,
-            percentageBookingFeeBps = percentageBookingFeeBps,
-            barberCommissionBps = barberCommissionBps,
-            barberFlatFeePaise = 0L,
-            freeCancellationCutoffHours = cutoffHours,
-            slotHoldMinutes = slotHoldMinutes,
-            policyText = policyText,
-            maintenanceMode = maintenanceMode
+        @Suppress("UNUSED_PARAMETER") maintenanceMode: Boolean
+    ) {
+        adminSavePlatformConfig(
+            feeType = bookingFeeType,
+            barberCommissionPercent = if (barberCommissionBps > 0L) barberCommissionBps / 100L else 15L,
+            barberFlatFeeRupees = fixedBookingFeeRupees,
+            cutoffHours = cutoffHours,
+            policyText = policyText
         )
     }
 
-    fun adminOverrideBooking(
-        booking: Booking,
-        newStatus: String,
-        newFeeStatus: String,
-        newDirectPaymentStatus: String,
-        replacementBarber: BarberProfile?,
-        reason: String
-    ) = runAction("Booking intervention applied & logged to audit trail") {
-        repository.adminResolveDisputeOrOverrideBooking(
-            booking, newStatus, newFeeStatus, newDirectPaymentStatus, replacementBarber, reason
-        )
-    }
-
-    fun adminResolveTicket(ticketId: String, newStatus: String, resolutionNote: String) =
-        runAction("Support ticket updated") {
-            repository.adminResolveSupportTicket(ticketId, newStatus, resolutionNote)
-        }
-
-    private fun runAction(successMsg: String, block: suspend () -> Unit) {
+    fun adminSetUserStatus(userId: String, status: String, reason: String) {
         viewModelScope.launch {
-            _isBusy.value = true
-            try {
-                block()
-                _statusBanner.value = successMsg
-            } catch (e: Exception) {
-                Log.e(TAG, "Action failed", e)
-                _statusBanner.value = e.localizedMessage ?: "Operation failed"
-            } finally {
-                _isBusy.value = false
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.adminSetUserStatus(userId, status, reason)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "User account updated to $status" },
+                        onFailure = { err -> "Failed: ${err.localizedMessage}" }
+                    )
+                )
+            }
+        }
+    }
+
+    fun adminVerifyUpfrontBookingFee(booking: Booking, paymentReference: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            val res = repo.adminVerifyUpfrontBookingFee(booking, paymentReference)
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    snackbarMessage = res.fold(
+                        onSuccess = { "Verified booking fee for ${booking.bookingNumber}" },
+                        onFailure = { err -> "Verification failed: ${err.localizedMessage}" }
+                    )
+                )
             }
         }
     }
 
     companion object {
-        private const val TAG = "MarketplaceVM"
-
-        fun defaultTodayDateKey(): String {
-            val cal = Calendar.getInstance()
-            return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
-        }
-
-        fun defaultTomorrowDateKey(): String {
-            val cal = Calendar.getInstance()
-            cal.add(Calendar.DAY_OF_YEAR, 1)
-            return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
-        }
+        fun defaultTodayDateKey(): String = LocalDate.now().toString()
+        fun defaultTomorrowDateKey(): String = LocalDate.now().plusDays(1L).toString()
     }
 }

@@ -1,8 +1,9 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.R
-import com.example.data.model.AuditLog
+import com.example.data.model.AuditLogEntry
 import com.example.data.model.BarberProfile
 import com.example.data.model.Booking
 import com.example.data.model.BookingPrivateAddress
@@ -10,192 +11,615 @@ import com.example.data.model.CatalogService
 import com.example.data.model.CurrencyUtils
 import com.example.data.model.CustomerAddress
 import com.example.data.model.PlatformConfig
-import com.example.data.model.Review
+import com.example.data.model.ReviewItem
 import com.example.data.model.ServiceArea
-import com.example.data.model.SlotLock
 import com.example.data.model.SupportTicket
 import com.example.data.model.UserAccount
-import com.example.data.util.OperationType
-import com.example.data.util.handleFirestoreError
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.DocumentSnapshot
+import com.example.data.firebase.DoorCutFirebase
+import com.example.util.LocationHelper
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.snapshots
-import kotlinx.coroutines.CancellationException
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
-class MarketplaceRepository(private val db: FirebaseFirestore) {
+class MarketplaceRepository(
+    private val db: FirebaseFirestore,
+    private val auth: FirebaseAuth = DoorCutFirebase.auth()
+) {
 
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+        DoorCutFirebase.firestore(context),
+        DoorCutFirebase.auth()
     )
 
-    private val auth = Firebase.auth
-
-    private fun requireUserId(): String {
-        return auth.currentUser?.uid
-            ?: throw IllegalStateException("User must be signed in before accessing DoorCut.")
+    companion object {
+        private const val TAG = "MarketplaceRepo"
+        const val OWNER_EMAIL = "nomaankhannfs2@gmail.com"
+        const val UNASSIGNED_BARBER_ID = "UNASSIGNED"
     }
 
-    // --- 1. User Account & Role Bootstrap ---
+    fun currentUid(): String? = auth.currentUser?.uid
+    fun currentEmail(): String? = auth.currentUser?.email
+    fun currentDisplayName(): String = auth.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "DoorCut Member"
 
-    fun observeUserAccount(userId: String): Flow<UserAccount?> {
-        val path = "users/$userId"
-        return db.collection("users").document(userId)
-            .snapshots()
-            .map { snap ->
-                if (snap.exists()) {
-                    snap.toObject(UserAccount::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                } else {
-                    null
+    fun observeAuthUid(): Flow<String?> = callbackFlow {
+        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            trySend(firebaseAuth.currentUser?.uid)
+        }
+        auth.addAuthStateListener(listener)
+        awaitClose { auth.removeAuthStateListener(listener) }
+    }
+
+    fun signOut() {
+        auth.signOut()
+    }
+
+    suspend fun ensureSignedInProfile(): Result<UserAccount> = runCatching {
+        val user = auth.currentUser ?: error("Not signed in")
+        val uid = user.uid
+        val email = user.email.orEmpty()
+        val displayName = user.displayName?.takeIf { it.isNotBlank() }
+            ?: email.substringBefore("@").ifBlank { "DoorCut User" }
+
+        val userRef = db.collection("users").document(uid)
+        val snap = userRef.get().await()
+        val isBootstrappedOwner = email.equals(OWNER_EMAIL, ignoreCase = true) && user.isEmailVerified
+
+        if (!snap.exists()) {
+            val assignedRole = if (isBootstrappedOwner) "ADMIN" else "CUSTOMER"
+            val payload = mapOf(
+                "userId" to uid,
+                "name" to displayName.take(100),
+                "email" to email.take(150),
+                "phone" to "",
+                "role" to assignedRole,
+                "status" to "ACTIVE",
+                "dob" to "",
+                "age" to 0L,
+                "gender" to "",
+                "onboardingCompleted" to isBootstrappedOwner,
+                "privacyAccepted" to isBootstrappedOwner,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            userRef.set(payload).await()
+            if (isBootstrappedOwner) {
+                runCatching {
+                    db.collection("admins").document(uid).set(
+                        mapOf("email" to email, "grantedAt" to FieldValue.serverTimestamp())
+                    ).await()
                 }
             }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.GET, path)
-                throw e
+        } else if (isBootstrappedOwner) {
+            val currentRole = snap.getString("role") ?: "CUSTOMER"
+            if (currentRole != "ADMIN") {
+                userRef.update(
+                    mapOf(
+                        "role" to "ADMIN",
+                        "status" to "ACTIVE",
+                        "onboardingCompleted" to true,
+                        "privacyAccepted" to true,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
             }
+        }
+
+        val fresh = userRef.get().await()
+        fresh.toObject(UserAccount::class.java) ?: UserAccount(
+            id = uid,
+            userId = uid,
+            name = displayName,
+            email = email,
+            role = if (isBootstrappedOwner) "ADMIN" else "CUSTOMER",
+            onboardingCompleted = isBootstrappedOwner
+        )
     }
 
-    suspend fun ensureUserAccount(
-        userId: String,
-        displayName: String,
-        email: String,
-        phone: String = ""
-    ): UserAccount {
-        val docRef = db.collection("users").document(userId)
-        try {
-            val snap = docRef.get().await()
-            if (snap.exists()) {
-                return snap.toObject(UserAccount::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    ?: UserAccount(id = userId, userId = userId, name = displayName, email = email, phone = phone)
+    fun observeUserAccount(uid: String): Flow<UserAccount?> = callbackFlow {
+        val reg: ListenerRegistration = db.collection("users").document(uid)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeUserAccount failed", err)
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                trySend(snap?.toObject(UserAccount::class.java))
             }
-            val isOwnerAdmin = email.equals("nomaankhannfs2@gmail.com", ignoreCase = true)
-            val initialRole = if (isOwnerAdmin) "ADMIN" else "CUSTOMER"
-            val payload = mapOf(
-                "userId" to userId,
-                "name" to displayName.ifBlank { "DoorCut Member" }.take(100),
-                "email" to email.take(150),
-                "phone" to phone.take(20),
-                "role" to initialRole,
-                "status" to "ACTIVE",
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-            docRef.set(payload).await()
-            val fresh = docRef.get().await()
-            return fresh.toObject(UserAccount::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)!!
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
-            throw e
-        }
+        awaitClose { reg.remove() }
     }
 
-    suspend fun updateOwnProfile(name: String, phone: String) {
-        val uid = requireUserId()
-        val docRef = db.collection("users").document(uid)
-        try {
-            docRef.update(
-                mapOf(
-                    "name" to name.trim().take(100),
-                    "phone" to phone.trim().take(20),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
-            throw e
-        }
-    }
-
-    suspend fun applyToBecomeBarber(
-        name: String,
+    suspend fun completeUserOnboarding(
+        fullName: String,
         phone: String,
-        bio: String,
+        dob: String,
+        age: Long,
+        gender: String,
+        selectedRole: String,
+        servesLadies: Boolean,
+        servesMen: Boolean,
         experienceYears: Long,
         upiId: String,
-        shopName: String = "",
-        shopAddress: String = "",
-        skills: List<String> = listOf("Precision Haircut", "Skin Fade", "Beard Sculpting"),
-        serviceIds: List<String>,
-        serviceAreaIds: List<String>
-    ) {
-        val uid = requireUserId()
-        val userRef = db.collection("users").document(uid)
-        val barberRef = db.collection("barberProfiles").document(uid)
-        try {
-            val batch = db.batch()
-            batch.update(
-                userRef,
-                mapOf(
-                    "name" to name.trim().take(100),
-                    "phone" to phone.trim().take(20),
-                    "role" to "BARBER",
-                    "status" to "PENDING",
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-            val barberPayload = mapOf(
-                "barberId" to uid,
-                "name" to name.trim().take(100),
-                "bio" to bio.trim().take(500),
-                "experienceYears" to experienceYears.coerceIn(0L, 60L),
-                "approvalStatus" to "PENDING",
-                "isOnline" to true,
-                "ratingAvg" to 5.0,
-                "reviewCount" to 0L,
-                "serviceIds" to serviceIds.take(50),
-                "serviceAreaIds" to serviceAreaIds.take(20),
-                "workingDays" to listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
-                "workStartHour" to 9L,
-                "workEndHour" to 20L,
-                "breakStartHour" to 13L,
-                "breakEndHour" to 14L,
-                "travelBufferMinutes" to 15L,
-                "upiId" to upiId.trim().take(100),
-                "skills" to skills.map { it.trim().take(40) }.filter { it.isNotBlank() }.take(15),
-                "perfectionBadge" to "Verified Home Specialist",
-                "shopName" to shopName.trim().ifBlank { "${name.trim().substringBefore(" ")}'s Barber Studio" }.take(120),
-                "shopAddress" to shopAddress.trim().take(240),
-                "homeVisitAvailable" to true,
-                "latitude" to 0.0,
-                "longitude" to 0.0,
-                "createdAt" to FieldValue.serverTimestamp(),
+        primaryArea: String,
+        latitude: Double,
+        longitude: Double,
+        defaultServiceIds: List<String>
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val cleanName = fullName.trim().take(100).ifBlank { currentDisplayName() }
+        val cleanPhone = phone.trim().take(30)
+        val cleanGender = gender.uppercase().takeIf { it in setOf("MALE", "FEMALE", "OTHER") } ?: "MALE"
+        val cleanAge = age.coerceIn(1L, 110L)
+        val isOwnerAdmin = currentEmail()?.equals(OWNER_EMAIL, ignoreCase = true) == true &&
+            auth.currentUser?.isEmailVerified == true
+
+        val targetRole = when {
+            isOwnerAdmin -> "ADMIN"
+            selectedRole == "BARBER" -> "BARBER"
+            else -> "CUSTOMER"
+        }
+        val targetStatus = if (targetRole == "BARBER") "PENDING" else "ACTIVE"
+
+        db.collection("users").document(uid).update(
+            mapOf(
+                "name" to cleanName,
+                "phone" to cleanPhone,
+                "dob" to dob.trim().take(30),
+                "age" to cleanAge,
+                "gender" to cleanGender,
+                "onboardingCompleted" to true,
+                "privacyAccepted" to true,
+                "role" to targetRole,
+                "status" to targetStatus,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            batch.set(barberRef, barberPayload)
-            batch.commit().await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, barberRef.path)
-            throw e
+        ).await()
+
+        if (targetRole == "BARBER") {
+            val skillsList = buildList {
+                if (servesLadies) {
+                    add("Lady Hair Stylist")
+                    add("Layered Cut & Blowout")
+                }
+                if (servesMen) {
+                    add("Precision Haircut")
+                    add("Beard & Razor Trim")
+                }
+                add("Sanitized Home Kit")
+            }.take(10)
+
+            val badge = when {
+                servesLadies && cleanGender == "FEMALE" -> "Verified Lady Hair Stylist"
+                servesLadies && servesMen -> "Verified Unisex Home Stylist"
+                else -> "Verified DoorCut Partner"
+            }
+
+            val profileRef = db.collection("barberProfiles").document(uid)
+            val existingSnap = profileRef.get().await()
+            if (!existingSnap.exists()) {
+                profileRef.set(
+                    mapOf(
+                        "barberId" to uid,
+                        "name" to cleanName,
+                        "phone" to cleanPhone,
+                        "gender" to cleanGender,
+                        "servesLadies" to servesLadies,
+                        "servesMen" to servesMen,
+                        "bio" to "Verified home grooming specialist (${experienceYears.coerceIn(0L, 60L)} yrs experience).",
+                        "experienceYears" to experienceYears.coerceIn(0L, 60L),
+                        "approvalStatus" to "APPROVED",
+                        "isOnline" to true,
+                        "ratingAvg" to 5.0,
+                        "reviewCount" to 0L,
+                        "serviceIds" to defaultServiceIds.take(40),
+                        "serviceAreaIds" to listOf("zone_central", "zone_south", "zone_west"),
+                        "workingDays" to listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
+                        "workStartHour" to 8L,
+                        "workEndHour" to 21L,
+                        "breakStartHour" to 13L,
+                        "breakEndHour" to 14L,
+                        "travelBufferMinutes" to 15L,
+                        "upiId" to upiId.trim().take(100),
+                        "skills" to skillsList,
+                        "perfectionBadge" to badge,
+                        "shopName" to "$cleanName Home Studio".take(120),
+                        "shopAddress" to primaryArea.trim().ifBlank { "Active Home Dispatch Zone" }.take(240),
+                        "homeVisitAvailable" to true,
+                        "latitude" to latitude.coerceIn(-90.0, 90.0),
+                        "longitude" to longitude.coerceIn(-180.0, 180.0),
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            } else {
+                profileRef.update(
+                    mapOf(
+                        "name" to cleanName,
+                        "phone" to cleanPhone,
+                        "gender" to cleanGender,
+                        "servesLadies" to servesLadies,
+                        "servesMen" to servesMen,
+                        "experienceYears" to experienceYears.coerceIn(0L, 60L),
+                        "upiId" to upiId.trim().take(100),
+                        "isOnline" to true,
+                        "latitude" to latitude.coerceIn(-90.0, 90.0),
+                        "longitude" to longitude.coerceIn(-180.0, 180.0),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
         }
     }
 
-    // --- 2. Customer Saved Door / Home Addresses ---
-
-    fun observeCustomerAddresses(customerId: String): Flow<List<CustomerAddress>> {
-        val path = "users/$customerId/addresses"
-        return db.collection("users").document(customerId).collection("addresses")
-            .snapshots()
-            .map { snap -> snap.toObjects(CustomerAddress::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
+    suspend fun updateUserContact(name: String, phone: String): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        db.collection("users").document(uid).update(
+            mapOf(
+                "name" to name.trim().take(100),
+                "phone" to phone.trim().take(30),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
     }
+
+    // --- Initial Service Catalog & Service Areas Seed (Zero Fake Barbers) ---
+
+    suspend fun ensureInitialSeedDataIfEmpty() {
+        val uid = currentUid() ?: return
+        try {
+            val servicesSnap = db.collection("services").whereEqualTo("isActive", true).limit(1).get().await()
+            if (servicesSnap.isEmpty) {
+                seedDefaultCatalog()
+            }
+            val areasSnap = db.collection("serviceAreas").whereEqualTo("isActive", true).limit(1).get().await()
+            if (areasSnap.isEmpty) {
+                seedDefaultServiceAreas()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Seed check skipped for $uid: ${e.message}")
+        }
+    }
+
+    private suspend fun seedDefaultCatalog() {
+        val defaults = listOf(
+            Triple("svc_classic_cut", "Haircut", Triple("HAIRCUTS", 30000L, 30L)) to
+                ("Clean scissor & clipper haircut at home with protective cape, floor sheet, and neat neckline finish." to false),
+            Triple("svc_beard_trim", "Beard Trim", Triple("BEARD_MOUSTACHE", 15000L, 15L)) to
+                ("Even beard trim, sharp cheek & jawline line-up with a fresh single-use blade, and soothing aftershave." to false),
+            Triple("svc_pkg_essential", "Haircut + Beard", Triple("PACKAGES", 40000L, 45L)) to
+                ("Complete Haircut + crisp Beard Trim & razor line-up in one smooth 45-minute home visit." to true),
+            Triple("svc_ladies_haircut", "Ladies Haircut & Trim", Triple("LADIES_STYLING", 39900L, 40L)) to
+                ("U-cut, V-cut, straight trim, or fringe shaping at home by a verified hair stylist with full floor cleanup." to false),
+            Triple("svc_ladies_layer_blowout", "Ladies Layer Cut & Blowout", Triple("LADIES_STYLING", 54900L, 50L)) to
+                ("Multi-layer feather/step haircut with round-brush volume blow-dry styling in the comfort of home." to false),
+            Triple("svc_normal_head_cut", "Normal Head Cut", Triple("HAIRCUTS", 19900L, 25L)) to
+                ("Balanced everyday head cut using sanitized clippers & scissors with crisp neck outline." to false),
+            Triple("svc_traditional_cut", "Traditional Haircut", Triple("HAIRCUTS", 22900L, 30L)) to
+                ("Classic scissor-over-comb haircut with neat side-part, tapered ear contour, and fresh blade finish." to false),
+            Triple("svc_skin_fade", "Zero / Mid / High Skin Fade", Triple("HAIRCUTS", 35000L, 40L)) to
+                ("Seamless foil-shaver & precision guard gradient fade with sharp hairline detailing." to false),
+            Triple("svc_kids_cut", "Kids' Gentle Home Haircut", Triple("HAIRCUTS", 25000L, 30L)) to
+                ("Calm, patient, low-noise clipper & rounded-tip scissor haircut at home for children under 12." to false),
+            Triple("svc_clean_shave", "Hot Towel Clean Shave", Triple("BEARD_MOUSTACHE", 18000L, 25L)) to
+                ("Two-pass warm-towel shave with pre-shave oil, rich cream lather, and hydrating post-shave balm." to false),
+            Triple("svc_scalp_oil", "Head Massage (Champi)", Triple("HAIR_CARE", 20000L, 20L)) to
+                ("20-minute stress-relieving scalp, forehead & shoulder oil massage." to false),
+            Triple("svc_face_cleanup", "Detan Face Cleanup", Triple("ADD_ONS", 35000L, 30L)) to
+                ("4-step tan-removal cleanser, exfoliating scrub, mask, and brightening massage." to false),
+            Triple("svc_pkg_complete", "Complete Grooming Package", Triple("PACKAGES", 79900L, 80L)) to
+                ("Haircut + Beard/Styling + Detan Face Cleanup + Relaxing Head Massage." to true)
+        )
+
+        defaults.forEachIndexed { idx, (meta, extra) ->
+            val (docId, name, catPriceDur) = meta
+            val (category, pricePaise, durationMin) = catPriceDur
+            val (desc, isPkg) = extra
+            runCatching {
+                db.collection("services").document(docId).set(
+                    mapOf(
+                        "name" to name,
+                        "category" to category,
+                        "description" to desc,
+                        "pricePaise" to pricePaise,
+                        "durationMinutes" to durationMin,
+                        "isActive" to true,
+                        "isPackage" to isPkg,
+                        "instructions" to "Keep a comfortable chair near good lighting and a power socket.",
+                        "sortOrder" to (idx + 1).toLong(),
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+        }
+    }
+
+    private suspend fun seedDefaultServiceAreas() {
+        val areas = listOf(
+            Triple("zone_central", "Central Metro Zone", listOf("500034", "500033", "560038", "560001", "400050")),
+            Triple("zone_south", "South Residential Zone", listOf("500081", "500032", "560034", "560102", "110016")),
+            Triple("zone_west", "West & Tech Corridor", listOf("500084", "500019", "560066", "560103", "411014"))
+        )
+        areas.forEach { (id, name, pins) ->
+            runCatching {
+                db.collection("serviceAreas").document(id).set(
+                    mapOf(
+                        "name" to name,
+                        "postalCodes" to pins,
+                        "travelChargePaise" to 0L,
+                        "maxDistanceKm" to 15L,
+                        "isActive" to true,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+        }
+    }
+
+    // --- Real-Time Streams ---
+
+    fun observeActiveServices(includeInactiveForAdmin: Boolean = false): Flow<List<CatalogService>> = callbackFlow {
+        val query: Query = if (includeInactiveForAdmin) {
+            db.collection("services")
+        } else {
+            db.collection("services").whereEqualTo("isActive", true)
+        }
+        val reg = query.addSnapshotListener { snap, err ->
+            if (err != null) {
+                Log.e(TAG, "observeActiveServices error", err)
+                trySend(emptyList())
+                return@addSnapshotListener
+            }
+            val items = snap?.documents
+                ?.mapNotNull { it.toObject(CatalogService::class.java) }
+                ?.sortedBy { it.sortOrder }
+                .orEmpty()
+            trySend(items)
+        }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeActiveServiceAreas(includeInactiveForAdmin: Boolean = false): Flow<List<ServiceArea>> = callbackFlow {
+        val query: Query = if (includeInactiveForAdmin) {
+            db.collection("serviceAreas")
+        } else {
+            db.collection("serviceAreas").whereEqualTo("isActive", true)
+        }
+        val reg = query.addSnapshotListener { snap, err ->
+            if (err != null) {
+                Log.e(TAG, "observeActiveServiceAreas error", err)
+                trySend(emptyList())
+                return@addSnapshotListener
+            }
+            val items = snap?.documents?.mapNotNull { it.toObject(ServiceArea::class.java) }.orEmpty()
+            trySend(items)
+        }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeApprovedBarbers(includeAllForAdmin: Boolean = false): Flow<List<BarberProfile>> = callbackFlow {
+        val query: Query = if (includeAllForAdmin) {
+            db.collection("barberProfiles")
+        } else {
+            db.collection("barberProfiles").whereEqualTo("approvalStatus", "APPROVED")
+        }
+        val reg = query.addSnapshotListener { snap, err ->
+            if (err != null) {
+                Log.e(TAG, "observeApprovedBarbers error", err)
+                trySend(emptyList())
+                return@addSnapshotListener
+            }
+            val items = snap?.documents
+                ?.mapNotNull { it.toObject(BarberProfile::class.java) }
+                ?.sortedByDescending { it.ratingAvg }
+                .orEmpty()
+            trySend(items)
+        }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeOwnBarberProfile(uid: String): Flow<BarberProfile?> = callbackFlow {
+        val reg = db.collection("barberProfiles").document(uid)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeOwnBarberProfile error", err)
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                trySend(snap?.toObject(BarberProfile::class.java))
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observePlatformConfig(): Flow<PlatformConfig> = callbackFlow {
+        val reg = db.collection("platformConfig").document("global")
+            .addSnapshotListener { snap, err ->
+                if (err != null || snap == null || !snap.exists()) {
+                    trySend(PlatformConfig())
+                    return@addSnapshotListener
+                }
+                trySend(snap.toObject(PlatformConfig::class.java) ?: PlatformConfig())
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeCustomerAddresses(uid: String): Flow<List<CustomerAddress>> = callbackFlow {
+        val reg = db.collection("users").document(uid).collection("addresses")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeCustomerAddresses error", err)
+                    close(err)
+                    return@addSnapshotListener
+                }
+                val list = snap?.documents
+                    ?.mapNotNull { it.toObject(CustomerAddress::class.java) }
+                    ?.sortedByDescending { it.isDefault }
+                    .orEmpty()
+                trySend(list)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeCustomerBookings(uid: String): Flow<List<Booking>> = callbackFlow {
+        val reg = db.collection("bookings")
+            .whereEqualTo("customerId", uid)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeCustomerBookings error", err)
+                    close(err)
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(Booking::class.java) }
+                    ?.sortedWith(compareByDescending<Booking> { it.dateKey }.thenByDescending { it.startHour })
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeBarberBookings(barberId: String): Flow<List<Booking>> = callbackFlow {
+        val reg = db.collection("bookings")
+            .whereEqualTo("barberId", barberId)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeBarberBookings error", err)
+                    close(err)
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(Booking::class.java) }
+                    ?.sortedWith(compareBy<Booking> { it.dateKey }.thenBy { it.startHour })
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    /**
+     * Real-time stream of UNASSIGNED open customer booking requests so Barbers can pick & claim
+     * requests matching their specialization, gender preference, and distance.
+     */
+    fun observeOpenDispatchBookings(): Flow<List<Booking>> = callbackFlow {
+        val reg = db.collection("bookings")
+            .whereEqualTo("barberId", UNASSIGNED_BARBER_ID)
+            .whereEqualTo("status", "AWAITING_BARBER")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeOpenDispatchBookings error", err)
+                    close(err)
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(Booking::class.java) }
+                    ?.sortedWith(
+                        compareByDescending<Booking> { it.bookingMode == "ASAP" }
+                            .thenBy { it.dateKey }
+                            .thenBy { it.startHour }
+                    )
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeAllBookingsForAdmin(): Flow<List<Booking>> = callbackFlow {
+        val reg = db.collection("bookings")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeAllBookingsForAdmin error", err)
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(Booking::class.java) }
+                    ?.sortedWith(compareByDescending<Booking> { it.dateKey }.thenByDescending { it.startHour })
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeSupportTickets(uid: String, isAdmin: Boolean): Flow<List<SupportTicket>> = callbackFlow {
+        val query: Query = if (isAdmin) {
+            db.collection("supportTickets")
+        } else {
+            db.collection("supportTickets").whereEqualTo("createdBy", uid)
+        }
+        val reg = query.addSnapshotListener { snap, err ->
+            if (err != null) {
+                Log.e(TAG, "observeSupportTickets error", err)
+                close(err)
+                return@addSnapshotListener
+            }
+            val list = snap?.documents?.mapNotNull { it.toObject(SupportTicket::class.java) }.orEmpty()
+            trySend(list)
+        }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeAuditLogs(): Flow<List<AuditLogEntry>> = callbackFlow {
+        val reg = db.collection("auditLogs")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(AuditLogEntry::class.java) }
+                    ?.sortedByDescending { it.createdAt?.seconds ?: 0L }
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeAllUsersForAdmin(): Flow<List<UserAccount>> = callbackFlow {
+        val reg = db.collection("users")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeAllUsersForAdmin error", err)
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(UserAccount::class.java) }
+                    ?.sortedBy { it.name.lowercase() }
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun observeAllBarbersForAdmin(): Flow<List<BarberProfile>> = callbackFlow {
+        val reg = db.collection("barberProfiles")
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    Log.e(TAG, "observeAllBarbersForAdmin error", err)
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val items = snap?.documents
+                    ?.mapNotNull { it.toObject(BarberProfile::class.java) }
+                    ?.sortedWith(
+                        compareBy<BarberProfile> { it.approvalStatus != "PENDING" }
+                            .thenBy { it.name.lowercase() }
+                    )
+                    .orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    // --- Customer Saved Door Addresses ---
 
     suspend fun saveCustomerAddress(
         label: String,
@@ -203,720 +627,715 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         streetArea: String,
         landmark: String,
         postalCode: String,
-        serviceAreaId: String,
-        serviceAreaName: String,
+        serviceArea: ServiceArea?,
         accessInstructions: String,
         isDefault: Boolean,
         latitude: Double = 0.0,
         longitude: Double = 0.0
-    ): String {
-        val uid = requireUserId()
-        val colRef = db.collection("users").document(uid).collection("addresses")
-        val docRef = colRef.document(UUID.randomUUID().toString())
-        try {
-            val payload = mapOf(
-                "customerId" to uid,
-                "label" to label,
-                "flatHouse" to flatHouse.trim().take(120),
-                "streetArea" to streetArea.trim().take(200),
-                "landmark" to landmark.trim().take(150),
-                "postalCode" to postalCode.trim().ifBlank { "560038" }.take(12),
-                "serviceAreaId" to serviceAreaId.take(128),
-                "serviceAreaName" to serviceAreaName.take(120),
-                "accessInstructions" to accessInstructions.trim().take(300),
-                "isDefault" to isDefault,
-                "latitude" to latitude.coerceIn(-90.0, 90.0),
-                "longitude" to longitude.coerceIn(-180.0, 180.0),
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp()
+    ): Result<String> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val docId = "addr_${UUID.randomUUID().toString().take(8)}"
+        val payload = mapOf(
+            "customerId" to uid,
+            "label" to label.takeIf { it in setOf("HOME", "OFFICE", "OTHER") }.orEmpty().ifBlank { "HOME" },
+            "flatHouse" to flatHouse.trim().take(140),
+            "streetArea" to streetArea.trim().take(200),
+            "landmark" to landmark.trim().take(150),
+            "postalCode" to postalCode.trim().take(16),
+            "serviceAreaId" to (serviceArea?.id ?: ""),
+            "serviceAreaName" to (serviceArea?.name ?: streetArea.trim().take(60)),
+            "accessInstructions" to accessInstructions.trim().take(300),
+            "isDefault" to isDefault,
+            "latitude" to latitude.coerceIn(-90.0, 90.0),
+            "longitude" to longitude.coerceIn(-180.0, 180.0),
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        db.collection("users").document(uid).collection("addresses").document(docId).set(payload).await()
+        docId
+    }
+
+    suspend fun deleteCustomerAddress(addressId: String): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        db.collection("users").document(uid).collection("addresses").document(addressId).delete().await()
+    }
+
+    // --- Uber / Rapido Open-Dispatch Booking Creation ---
+
+    suspend fun createOpenDispatchBooking(
+        customerName: String,
+        customerPhone: String,
+        customerGender: String,
+        customerAge: Long,
+        preferLadyBarber: Boolean,
+        bookingMode: String,
+        selectedServices: List<CatalogService>,
+        address: CustomerAddress,
+        serviceArea: ServiceArea?,
+        dateKey: String,
+        startHour: Long,
+        customerNotes: String,
+        bookingFeeTxRef: String,
+        config: PlatformConfig,
+        preallocatedBookingId: String? = null
+    ): Result<String> = runCatching {
+        val uid = currentUid() ?: error("Please sign in to confirm your booking")
+        require(selectedServices.isNotEmpty()) { "Select at least one grooming service" }
+        require(customerPhone.isNotBlank()) { "Phone number is required so your appointed barber can coordinate arrival" }
+
+        val bookingId = preallocatedBookingId?.takeIf { it.isNotBlank() }
+            ?: "bk_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        val bookingNum = "DC-${(1000..9999).random()}"
+
+        // Cross-check authoritative service prices & durations from Firestore when seeded
+        val resolvedServices = selectedServices.take(15).map { clientSvc ->
+            val snap = runCatching { db.collection("services").document(clientSvc.id).get().await() }.getOrNull()
+            if (snap != null && snap.exists()) {
+                val active = snap.getBoolean("isActive") ?: true
+                require(active) { "Service '${clientSvc.name}' is currently inactive." }
+                clientSvc.copy(
+                    name = snap.getString("name")?.takeIf { it.isNotBlank() } ?: clientSvc.name,
+                    pricePaise = snap.getLong("pricePaise") ?: clientSvc.pricePaise,
+                    durationMinutes = snap.getLong("durationMinutes") ?: clientSvc.durationMinutes
+                )
+            } else {
+                clientSvc
+            }
+        }
+
+        val authoritativeConfig = runCatching {
+            db.collection("platformConfig").document("global").get().await()
+                .toObject(PlatformConfig::class.java)
+        }.getOrNull() ?: config
+
+        val subtotalPaise = resolvedServices.sumOf { it.pricePaise }
+        val travelPaise = serviceArea?.travelChargePaise ?: 0L
+        val barberPayablePaise = subtotalPaise + travelPaise
+        val customerFeePaise = authoritativeConfig.computeCustomerConfirmationFeePaise(subtotalPaise)
+        val totalCustomerCostPaise = barberPayablePaise + customerFeePaise
+        val barberCommissionPaise = authoritativeConfig.computeBarberCommissionPaise(barberPayablePaise)
+        val barberNetPaise = (barberPayablePaise - barberCommissionPaise).coerceAtLeast(0L)
+        val totalDuration = resolvedServices.sumOf { it.durationMinutes }.coerceIn(10L, 480L)
+        val summary = resolvedServices.joinToString(", ") {
+            "${it.name} (${CurrencyUtils.formatRupees(it.pricePaise)})"
+        }.take(490)
+
+        // Zero-trust fee status: NEVER spoof PAID_VERIFIED on client unless server/Admin receipt exists
+        val resolvedFeeStatus = if (customerFeePaise <= 0L) {
+            "ZERO_CUSTOMER_FEE"
+        } else {
+            val verifiedSnap = runCatching {
+                db.collection("verifiedPayments").document(bookingId).get().await()
+            }.getOrNull()
+            val verifiedAmount = verifiedSnap?.getLong("amountPaise") ?: 0L
+            if (verifiedSnap != null && verifiedSnap.exists() && verifiedAmount >= customerFeePaise) {
+                "PAID_VERIFIED"
+            } else {
+                "UNPAID"
+            }
+        }
+
+        val cleanGender = customerGender.uppercase().takeIf {
+            it in setOf("MALE", "FEMALE", "CHILD", "OTHER")
+        } ?: "MALE"
+
+        val dispatchLabel = if (preferLadyBarber) {
+            "Matching Verified Lady Stylist"
+        } else {
+            "Matching Nearby Verified Barber"
+        }
+
+        val bookingRef = db.collection("bookings").document(bookingId)
+        val privRef = bookingRef.collection("privateDetails").document("main")
+
+        val bookingPayload = mapOf(
+            "bookingNumber" to bookingNum,
+            "customerId" to uid,
+            "customerName" to customerName.trim().ifBlank { currentDisplayName() }.take(100),
+            "customerPhone" to customerPhone.trim().take(30),
+            "customerGender" to cleanGender,
+            "customerAge" to customerAge.coerceIn(0L, 120L),
+            "preferLadyBarber" to preferLadyBarber,
+            "bookingMode" to if (bookingMode == "SCHEDULED") "SCHEDULED" else "ASAP",
+            "customerLat" to address.latitude.coerceIn(-90.0, 90.0),
+            "customerLon" to address.longitude.coerceIn(-180.0, 180.0),
+            "barberId" to UNASSIGNED_BARBER_ID,
+            "barberName" to dispatchLabel,
+            "barberPhone" to "",
+            "barberLat" to 0.0,
+            "barberLon" to 0.0,
+            "status" to "AWAITING_BARBER",
+            "dateKey" to dateKey,
+            "startHour" to startHour.coerceIn(0L, 23L),
+            "durationMinutes" to totalDuration,
+            "serviceIds" to resolvedServices.map { it.id }.take(15),
+            "serviceNamesSummary" to summary,
+            "areaName" to address.serviceAreaName.ifBlank { address.streetArea }.take(120),
+            "serviceSubtotalPaise" to subtotalPaise,
+            "approvedAddOnPaise" to 0L,
+            "travelChargePaise" to travelPaise,
+            "barberServicePayablePaise" to barberPayablePaise,
+            "platformBookingFeePaise" to customerFeePaise,
+            "totalCustomerCostPaise" to totalCustomerCostPaise,
+            "bookingFeeStatus" to resolvedFeeStatus,
+            "bookingFeeTxRef" to bookingFeeTxRef.trim().ifBlank { "DISPATCH-${bookingNum}" }.take(120),
+            "barberCommissionPaise" to barberCommissionPaise,
+            "barberNetEarningsPaise" to barberNetPaise,
+            "barberCommissionStatus" to "PENDING_SETTLEMENT",
+            "directPaymentStatus" to "PENDING",
+            "directPaymentMethod" to "NONE",
+            "directPaymentDeclaredPaise" to 0L,
+            "directPaymentRef" to "",
+            "pendingAddOnServiceId" to "",
+            "pendingAddOnName" to "",
+            "pendingAddOnPricePaise" to 0L,
+            "pendingAddOnDurationMin" to 0L,
+            "pendingAddOnStatus" to "NONE",
+            "customerNotes" to customerNotes.trim().take(500),
+            "cancellationReason" to "",
+            "policySnapshot" to authoritativeConfig.policyText.take(500),
+            "hasReview" to false,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        val privPayload = mapOf(
+            "bookingId" to bookingId,
+            "customerId" to uid,
+            "barberId" to UNASSIGNED_BARBER_ID,
+            "fullAddressSnapshot" to address.fullSummary().ifBlank { address.flatHouse }.take(500),
+            "accessInstructions" to address.accessInstructions.take(300),
+            "customerPhone" to customerPhone.trim().take(30),
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        val batch = db.batch()
+        batch.set(bookingRef, bookingPayload)
+        batch.set(privRef, privPayload)
+        batch.commit().await()
+        bookingId
+    }
+
+    /**
+     * Computes deterministic hour slots occupied by a booking including the barber's travel buffer.
+     */
+    fun computeOccupiedHours(startHour: Long, durationMinutes: Long, travelBufferMinutes: Long): List<Long> {
+        val totalMinutes = (durationMinutes.coerceAtLeast(15L) + travelBufferMinutes.coerceAtLeast(0L))
+        val hoursNeeded = ((totalMinutes + 59L) / 60L).coerceIn(1L, 10L)
+        return (0L until hoursNeeded)
+            .map { (startHour + it).coerceIn(0L, 23L) }
+            .distinct()
+    }
+
+    /**
+     * Atomic transaction allowing an approved Barber to claim an UNASSIGNED customer booking
+     * from the Open Dispatch Pool while atomically locking `slotLocks/{barberId}_{dateKey}_{hour}`
+     * across service duration + travel buffer (`MarioMahir/BarberFlow` double-booking prevention).
+     */
+    suspend fun barberClaimOpenBooking(
+        bookingId: String,
+        barberProfile: BarberProfile,
+        liveLat: Double,
+        liveLon: Double
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val bookingRef = db.collection("bookings").document(bookingId)
+        val startLat = if (liveLat != 0.0) liveLat else barberProfile.latitude
+        val startLon = if (liveLon != 0.0) liveLon else barberProfile.longitude
+
+        db.runTransaction { tx ->
+            val snap = tx.get(bookingRef)
+            if (!snap.exists()) {
+                throw FirebaseFirestoreException(
+                    "Booking no longer exists.",
+                    FirebaseFirestoreException.Code.NOT_FOUND
+                )
+            }
+            val currentBarber = snap.getString("barberId").orEmpty()
+            val currentStatus = snap.getString("status").orEmpty()
+            if (currentBarber != UNASSIGNED_BARBER_ID || currentStatus != "AWAITING_BARBER") {
+                throw FirebaseFirestoreException(
+                    "Another barber just accepted this request.",
+                    FirebaseFirestoreException.Code.ABORTED
+                )
+            }
+
+            val dateKey = snap.getString("dateKey").orEmpty()
+            val startHour = snap.getLong("startHour") ?: 10L
+            val durationMinutes = snap.getLong("durationMinutes") ?: 30L
+            val bookingMode = snap.getString("bookingMode").orEmpty()
+            val customerId = snap.getString("customerId").orEmpty()
+
+            val occupiedHours = computeOccupiedHours(
+                startHour = startHour,
+                durationMinutes = durationMinutes,
+                travelBufferMinutes = barberProfile.travelBufferMinutes
             )
-            docRef.set(payload).await()
-            return docRef.id
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, colRef.path)
-            throw e
-        }
-    }
 
-    suspend fun deleteCustomerAddress(addressId: String) {
-        val uid = requireUserId()
-        val docRef = db.collection("users").document(uid).collection("addresses").document(addressId)
-        try {
-            docRef.delete().await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, docRef.path)
-            throw e
-        }
-    }
-
-    // --- 3. Catalog Services, Service Areas & Platform Config ---
-
-    fun observeActiveServices(): Flow<List<CatalogService>> {
-        val path = "services"
-        return db.collection(path)
-            .whereEqualTo("isActive", true)
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(CatalogService::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedBy { it.sortOrder }
-            }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    fun observeAllServicesForAdmin(): Flow<List<CatalogService>> {
-        val path = "services"
-        return db.collection(path)
-            .snapshots()
-            .map { snap ->
-                snap.toObjects(CatalogService::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    .sortedBy { it.sortOrder }
-            }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    fun observeActiveServiceAreas(): Flow<List<ServiceArea>> {
-        val path = "serviceAreas"
-        return db.collection(path)
-            .whereEqualTo("isActive", true)
-            .snapshots()
-            .map { snap -> snap.toObjects(ServiceArea::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    fun observePlatformConfig(): Flow<PlatformConfig> {
-        val path = "platformConfig/global"
-        return db.collection("platformConfig").document("global")
-            .snapshots()
-            .map { snap ->
-                if (snap.exists()) {
-                    snap.toObject(PlatformConfig::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: PlatformConfig()
-                } else {
-                    PlatformConfig()
+            // Validate working hours and break window for scheduled slots
+            if (bookingMode == "SCHEDULED") {
+                val endExclusive = startHour + occupiedHours.size
+                if (startHour < barberProfile.workStartHour || endExclusive > barberProfile.workEndHour) {
+                    throw FirebaseFirestoreException(
+                        "Slot (${startHour}:00–${endExclusive}:00) falls outside your working hours (${barberProfile.workStartHour}:00–${barberProfile.workEndHour}:00).",
+                        FirebaseFirestoreException.Code.FAILED_PRECONDITION
+                    )
+                }
+                if (barberProfile.breakEndHour > barberProfile.breakStartHour) {
+                    val hitsBreak = occupiedHours.any { hr ->
+                        hr >= barberProfile.breakStartHour && hr < barberProfile.breakEndHour
+                    }
+                    if (hitsBreak) {
+                        throw FirebaseFirestoreException(
+                            "Slot overlaps your scheduled break (${barberProfile.breakStartHour}:00–${barberProfile.breakEndHour}:00).",
+                            FirebaseFirestoreException.Code.FAILED_PRECONDITION
+                        )
+                    }
                 }
             }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.GET, path)
-                throw e
-            }
-    }
 
-    // --- 4. Barber Profiles & Schedule ---
-
-    fun observeApprovedBarbers(): Flow<List<BarberProfile>> {
-        val path = "barberProfiles"
-        return db.collection(path)
-            .whereEqualTo("approvalStatus", "APPROVED")
-            .snapshots()
-            .map { snap -> snap.toObjects(BarberProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
+            // Read ALL slotLocks BEFORE any write (Firestore transaction invariant)
+            val lockRefsAndSnaps = occupiedHours.map { hour ->
+                val lockRef = db.collection("slotLocks").document("${uid}_${dateKey}_${hour}")
+                Triple(hour, lockRef, tx.get(lockRef))
             }
-    }
 
-    fun observeOwnBarberProfile(barberId: String): Flow<BarberProfile?> {
-        val path = "barberProfiles/$barberId"
-        return db.collection("barberProfiles").document(barberId)
-            .snapshots()
-            .map { snap ->
-                if (snap.exists()) snap.toObject(BarberProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) else null
+            for ((hour, _, lockSnap) in lockRefsAndSnaps) {
+                if (lockSnap.exists()) {
+                    val lockStatus = lockSnap.getString("status").orEmpty()
+                    val lockBookingId = lockSnap.getString("bookingId").orEmpty()
+                    if (lockStatus in setOf("HELD", "CONFIRMED") && lockBookingId != bookingId) {
+                        throw FirebaseFirestoreException(
+                            "Schedule conflict at ${hour}:00 on $dateKey (includes ${barberProfile.travelBufferMinutes}m travel buffer).",
+                            FirebaseFirestoreException.Code.ABORTED
+                        )
+                    }
+                }
             }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.GET, path)
-                throw e
-            }
-    }
 
-    fun observeAllBarbersForAdmin(): Flow<List<BarberProfile>> {
-        val path = "barberProfiles"
-        return db.collection(path)
-            .snapshots()
-            .map { snap -> snap.toObjects(BarberProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    suspend fun setBarberOnlineStatus(isOnline: Boolean) {
-        val uid = requireUserId()
-        val docRef = db.collection("barberProfiles").document(uid)
-        try {
-            docRef.update(
+            // Perform atomic writes: claim booking + confirm slotLocks
+            tx.update(
+                bookingRef,
                 mapOf(
-                    "isOnline" to isOnline,
+                    "barberId" to uid,
+                    "barberName" to barberProfile.name.ifBlank { currentDisplayName() }.take(100),
+                    "barberPhone" to barberProfile.phone.take(30),
+                    "barberLat" to startLat.coerceIn(-90.0, 90.0),
+                    "barberLon" to startLon.coerceIn(-180.0, 180.0),
+                    "status" to "CONFIRMED",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            )
+
+            for ((hour, lockRef, lockSnap) in lockRefsAndSnaps) {
+                if (lockSnap.exists()) {
+                    tx.update(
+                        lockRef,
+                        mapOf(
+                            "bookingId" to bookingId,
+                            "customerId" to customerId,
+                            "status" to "CONFIRMED",
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    )
+                } else {
+                    tx.set(
+                        lockRef,
+                        mapOf(
+                            "barberId" to uid,
+                            "dateKey" to dateKey,
+                            "hourSlot" to hour,
+                            "bookingId" to bookingId,
+                            "customerId" to customerId,
+                            "status" to "CONFIRMED",
+                            "createdAt" to FieldValue.serverTimestamp(),
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    )
+                }
+            }
+        }.await()
+    }
+
+    suspend fun barberUpdateLiveLocation(
+        bookingId: String,
+        latitude: Double,
+        longitude: Double
+    ): Result<Unit> = runCatching {
+        if (latitude == 0.0 && longitude == 0.0) return@runCatching
+        db.collection("bookings").document(bookingId).update(
+            mapOf(
+                "barberLat" to latitude.coerceIn(-90.0, 90.0),
+                "barberLon" to longitude.coerceIn(-180.0, 180.0),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+    }
+
+    suspend fun fetchProtectedBookingAddress(bookingId: String): Result<BookingPrivateAddress?> = runCatching {
+        val snap = db.collection("bookings").document(bookingId)
+            .collection("privateDetails").document("main").get().await()
+        snap.toObject(BookingPrivateAddress::class.java)
+    }
+
+    // --- Lifecycle State Transitions ---
+
+    private suspend fun releaseBookingSlotLocks(booking: Booking) {
+        if (booking.barberId.isBlank() || booking.barberId == UNASSIGNED_BARBER_ID || booking.dateKey.length != 10) return
+        val candidateHours = computeOccupiedHours(
+            startHour = booking.startHour,
+            durationMinutes = booking.durationMinutes,
+            travelBufferMinutes = 180L
+        )
+        for (hour in candidateHours) {
+            val lockRef = db.collection("slotLocks").document("${booking.barberId}_${booking.dateKey}_${hour}")
+            runCatching {
+                val snap = lockRef.get().await()
+                if (snap.exists() && snap.getString("bookingId") == booking.id && snap.getString("status") != "RELEASED") {
+                    lockRef.update(
+                        mapOf(
+                            "status" to "RELEASED",
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                }
+            }
+        }
+    }
+
+    suspend fun cancelBooking(
+        booking: Booking,
+        reason: String
+    ): Result<Unit> = runCatching {
+        val bookingRef = db.collection("bookings").document(booking.id)
+        bookingRef.update(
+            mapOf(
+                "status" to "CANCELLED",
+                "cancellationReason" to reason.trim().ifBlank { "Cancelled by customer" }.take(300),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        releaseBookingSlotLocks(booking)
+    }
+
+    suspend fun barberRespondToBooking(booking: Booking, accept: Boolean, reason: String = ""): Result<Unit> = runCatching {
+        val bookingRef = db.collection("bookings").document(booking.id)
+        if (accept) {
+            bookingRef.update(
+                mapOf(
+                    "status" to "CONFIRMED",
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
-            throw e
+        } else {
+            bookingRef.update(
+                mapOf(
+                    "status" to "CANCELLED",
+                    "cancellationReason" to reason.ifBlank { "Barber unavailable — please rebook" }.take(300),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            releaseBookingSlotLocks(booking)
         }
     }
 
-    suspend fun updateBarberScheduleAndAvailability(
-        isOnline: Boolean,
+    suspend fun barberUpdateTripStatus(
+        bookingId: String,
+        nextStatus: String,
+        liveLat: Double = 0.0,
+        liveLon: Double = 0.0
+    ): Result<Unit> = runCatching {
+        require(nextStatus in setOf("ON_THE_WAY", "ARRIVED", "IN_PROGRESS", "COMPLETED", "NO_SHOW"))
+        val updates = mutableMapOf<String, Any>(
+            "status" to nextStatus,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (liveLat != 0.0 || liveLon != 0.0) {
+            updates["barberLat"] = liveLat.coerceIn(-90.0, 90.0)
+            updates["barberLon"] = liveLon.coerceIn(-180.0, 180.0)
+        }
+        db.collection("bookings").document(bookingId).update(updates).await()
+    }
+
+    suspend fun barberRequestExtraService(
+        bookingId: String,
+        extraService: CatalogService
+    ): Result<Unit> = runCatching {
+        db.collection("bookings").document(bookingId).update(
+            mapOf(
+                "pendingAddOnServiceId" to extraService.id,
+                "pendingAddOnName" to extraService.name.take(100),
+                "pendingAddOnPricePaise" to extraService.pricePaise,
+                "pendingAddOnDurationMin" to extraService.durationMinutes,
+                "pendingAddOnStatus" to "REQUESTED",
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+    }
+
+    suspend fun customerRespondToAddOn(
+        booking: Booking,
+        approve: Boolean,
+        config: PlatformConfig = PlatformConfig()
+    ): Result<Unit> = runCatching {
+        val bookingRef = db.collection("bookings").document(booking.id)
+        if (approve && booking.pendingAddOnStatus == "REQUESTED") {
+            val newAddOnTotal = booking.approvedAddOnPaise + booking.pendingAddOnPricePaise
+            val newBarberPayable = booking.serviceSubtotalPaise + newAddOnTotal + booking.travelChargePaise
+            val newTotalCustomerCost = newBarberPayable + booking.platformBookingFeePaise
+            val newBarberCommission = config.computeBarberCommissionPaise(newBarberPayable)
+            val newBarberNet = (newBarberPayable - newBarberCommission).coerceAtLeast(0L)
+            val updatedSummary = "${booking.serviceNamesSummary} + ${booking.pendingAddOnName} (${CurrencyUtils.formatRupees(booking.pendingAddOnPricePaise)})".take(490)
+            bookingRef.update(
+                mapOf(
+                    "approvedAddOnPaise" to newAddOnTotal,
+                    "barberServicePayablePaise" to newBarberPayable,
+                    "totalCustomerCostPaise" to newTotalCustomerCost,
+                    "barberCommissionPaise" to newBarberCommission,
+                    "barberNetEarningsPaise" to newBarberNet,
+                    "durationMinutes" to (booking.durationMinutes + booking.pendingAddOnDurationMin).coerceAtMost(600L),
+                    "serviceNamesSummary" to updatedSummary,
+                    "pendingAddOnStatus" to "APPROVED",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } else {
+            bookingRef.update(
+                mapOf(
+                    "pendingAddOnStatus" to "DECLINED",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
+    }
+
+    suspend fun barberDeclareDirectPayment(
+        bookingId: String,
+        declaredStatus: String,
+        method: String,
+        amountPaise: Long,
+        referenceNote: String,
+        markCompleted: Boolean
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val updates = mutableMapOf<String, Any>(
+            "directPaymentStatus" to declaredStatus,
+            "directPaymentMethod" to method,
+            "directPaymentDeclaredPaise" to amountPaise.coerceAtLeast(0L),
+            "directPaymentRef" to referenceNote.trim().take(120),
+            "directPaymentRecordedBy" to uid,
+            "directPaymentRecordedAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (markCompleted) {
+            updates["status"] = "COMPLETED"
+        } else if (declaredStatus == "DISPUTED") {
+            updates["status"] = "DISPUTED"
+        }
+        db.collection("bookings").document(bookingId).update(updates).await()
+    }
+
+    suspend fun customerConfirmOrDisputeDirectPayment(
+        bookingId: String,
+        confirmed: Boolean
+    ): Result<Unit> = runCatching {
+        val updates = if (confirmed) {
+            mapOf(
+                "directPaymentStatus" to "CUSTOMER_CONFIRMED",
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        } else {
+            mapOf(
+                "directPaymentStatus" to "DISPUTED",
+                "status" to "DISPUTED",
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        }
+        db.collection("bookings").document(bookingId).update(updates).await()
+    }
+
+    suspend fun submitReview(
+        booking: Booking,
+        rating: Int,
+        comment: String
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val reviewId = "rev_${booking.id}"
+        val batch = db.batch()
+        batch.set(
+            db.collection("reviews").document(reviewId),
+            mapOf(
+                "bookingId" to booking.id,
+                "customerId" to uid,
+                "customerName" to booking.customerName,
+                "barberId" to booking.barberId,
+                "rating" to rating.coerceIn(1, 5).toLong(),
+                "comment" to comment.trim().take(600),
+                "status" to "PUBLISHED",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        )
+        batch.update(
+            db.collection("bookings").document(booking.id),
+            mapOf(
+                "hasReview" to true,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        )
+        batch.commit().await()
+    }
+
+    // --- Barber Onboarding & Profile Management ---
+
+    suspend fun applyOrSaveBarberProfile(
+        name: String,
+        phone: String,
+        gender: String = "MALE",
+        servesLadies: Boolean = false,
+        servesMen: Boolean = true,
+        bio: String,
+        experienceYears: Long,
+        serviceIds: List<String>,
+        serviceAreaIds: List<String>,
         workStartHour: Long,
         workEndHour: Long,
-        breakStartHour: Long,
-        breakEndHour: Long,
-        travelBufferMinutes: Long,
         upiId: String,
-        shopName: String,
-        shopAddress: String,
-        skills: List<String>,
-        serviceIds: List<String>,
-        workingDays: List<String> = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
-    ) {
-        val uid = requireUserId()
-        val docRef = db.collection("barberProfiles").document(uid)
-        try {
-            docRef.update(
+        shopName: String = "",
+        shopAddress: String = "",
+        skills: List<String> = emptyList(),
+        latitude: Double = 0.0,
+        longitude: Double = 0.0,
+        workingDays: List<String> = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
+        breakStartHour: Long = 13L,
+        breakEndHour: Long = 14L,
+        travelBufferMinutes: Long = 15L
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val profileRef = db.collection("barberProfiles").document(uid)
+        val existingSnap = profileRef.get().await()
+        val effectiveSkills = skills.ifEmpty {
+            buildList {
+                if (servesLadies) add("Lady Hair Stylist")
+                if (servesMen) add("Precision Haircut")
+                add("Sanitized Home Kit")
+            }
+        }.take(15)
+        val cleanGender = gender.uppercase().takeIf { it in setOf("MALE", "FEMALE", "OTHER") } ?: "MALE"
+        val cleanWorkingDays = workingDays
+            .filter { it in setOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN") }
+            .distinct()
+            .ifEmpty { listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN") }
+            .take(7)
+        val badgeLabel = if (servesLadies && cleanGender == "FEMALE") {
+            "Verified Lady Hair Stylist"
+        } else {
+            "Verified DoorCut Partner"
+        }
+
+        if (!existingSnap.exists()) {
+            val fallbackLoc = LocationHelper.resolveBestFallbackLocationForText(shopAddress, "")
+            val initLat = if (latitude != 0.0) latitude else fallbackLoc.latitude
+            val initLon = if (longitude != 0.0) longitude else fallbackLoc.longitude
+            profileRef.set(
                 mapOf(
-                    "isOnline" to isOnline,
+                    "barberId" to uid,
+                    "name" to name.trim().take(100),
+                    "phone" to phone.trim().take(30),
+                    "gender" to cleanGender,
+                    "servesLadies" to servesLadies,
+                    "servesMen" to servesMen,
+                    "bio" to bio.trim().take(500),
+                    "experienceYears" to experienceYears.coerceIn(0L, 60L),
+                    "approvalStatus" to "APPROVED",
+                    "isOnline" to true,
+                    "ratingAvg" to 5.0,
+                    "reviewCount" to 0L,
+                    "serviceIds" to serviceIds.take(50),
+                    "serviceAreaIds" to serviceAreaIds.take(20),
+                    "workingDays" to cleanWorkingDays,
                     "workStartHour" to workStartHour.coerceIn(0L, 23L),
                     "workEndHour" to workEndHour.coerceIn(1L, 24L),
                     "breakStartHour" to breakStartHour.coerceIn(0L, 23L),
                     "breakEndHour" to breakEndHour.coerceIn(0L, 24L),
                     "travelBufferMinutes" to travelBufferMinutes.coerceIn(0L, 180L),
                     "upiId" to upiId.trim().take(100),
-                    "shopName" to shopName.trim().take(120),
-                    "shopAddress" to shopAddress.trim().take(240),
-                    "skills" to skills.map { it.trim().take(40) }.filter { it.isNotBlank() }.take(15),
-                    "serviceIds" to serviceIds.take(50),
-                    "workingDays" to workingDays.take(7),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
-            throw e
-        }
-    }
-
-    // --- 5. Active Slot Locks & Atomic Zero-Customer-Fee Booking Creation ---
-
-    fun observeActiveSlotLocks(): Flow<List<SlotLock>> {
-        val path = "slotLocks"
-        return db.collection(path)
-            .whereIn("status", listOf("HELD", "CONFIRMED"))
-            .snapshots()
-            .map { snap -> snap.toObjects(SlotLock::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    /**
-     * Atomically reserves the barber's time slot via deterministic lock ID, snapshots service prices,
-     * applies ₹0 platform fee to the customer, calculates Barber Commission, and stores protected door address.
-     */
-    suspend fun createBookingWithSlotLock(
-        customerName: String,
-        customerPhone: String,
-        barber: BarberProfile,
-        selectedServices: List<CatalogService>,
-        address: CustomerAddress,
-        travelChargePaise: Long,
-        barberCommissionPaise: Long,
-        dateKey: String,
-        startHour: Long,
-        customerNotes: String,
-        policySnapshot: String,
-        platformBookingFeePaise: Long = 0L,
-        bookingFeeTxRef: String = ""
-    ): String {
-        val uid = requireUserId()
-        require(selectedServices.isNotEmpty()) { "Select at least one service." }
-        val lockId = "${barber.barberId}_${dateKey}_${startHour}"
-        val bookingId = "book_${UUID.randomUUID().toString().replace("-", "").take(12)}"
-        val bookingNumber = "DC-${dateKey.replace("-", "")}-${(1000..9999).random()}"
-
-        val serviceSubtotalPaise = selectedServices.sumOf { it.pricePaise }
-        val totalDurationMin = selectedServices.sumOf { it.durationMinutes }
-        val barberPayablePaise = serviceSubtotalPaise + travelChargePaise
-        val safeBookingFeePaise = platformBookingFeePaise.coerceAtLeast(0L)
-        val totalCustomerCostPaise = barberPayablePaise + safeBookingFeePaise
-        val feeStatus = if (safeBookingFeePaise > 0L) "PAID_VERIFIED" else "ZERO_CUSTOMER_FEE"
-        val resolvedTxRef = bookingFeeTxRef.ifBlank {
-            if (safeBookingFeePaise > 0L) "FEE-${bookingNumber.takeLast(4)}" else "FREE-SLOT-${bookingNumber.takeLast(4)}"
-        }
-        val safeCommissionPaise = barberCommissionPaise.coerceIn(0L, barberPayablePaise)
-        val barberNetPaise = (barberPayablePaise - safeCommissionPaise).coerceAtLeast(0L)
-        val summary = selectedServices.joinToString(", ") { "${it.name} (${CurrencyUtils.formatRupees(it.pricePaise)})" }
-
-        val lockRef = db.collection("slotLocks").document(lockId)
-        val bookingRef = db.collection("bookings").document(bookingId)
-        val privRef = bookingRef.collection("privateDetails").document("main")
-
-        try {
-            db.runTransaction { tx ->
-                val existingLock = tx.get(lockRef)
-                if (existingLock.exists()) {
-                    val status = existingLock.getString("status") ?: "HELD"
-                    if (status == "HELD" || status == "CONFIRMED") {
-                        throw IllegalStateException("SLOT_UNAVAILABLE: This barber time slot was just reserved by another customer.")
-                    }
-                }
-
-                val lockData = mutableMapOf<String, Any>(
-                    "barberId" to barber.barberId,
-                    "dateKey" to dateKey,
-                    "hourSlot" to startHour,
-                    "bookingId" to bookingId,
-                    "customerId" to uid,
-                    "status" to "CONFIRMED",
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                if (!existingLock.exists()) {
-                    lockData["createdAt"] = FieldValue.serverTimestamp()
-                } else {
-                    lockData["createdAt"] = existingLock.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()
-                }
-                tx.set(lockRef, lockData)
-
-                tx.set(
-                    bookingRef,
-                    mapOf(
-                        "bookingNumber" to bookingNumber,
-                        "customerId" to uid,
-                        "customerName" to customerName.ifBlank { "Customer" }.take(100),
-                        "barberId" to barber.barberId,
-                        "barberName" to barber.name.take(100),
-                        "status" to "AWAITING_BARBER",
-                        "dateKey" to dateKey,
-                        "startHour" to startHour,
-                        "durationMinutes" to totalDurationMin.coerceIn(5L, 600L),
-                        "serviceIds" to selectedServices.map { it.id }.take(15),
-                        "serviceNamesSummary" to summary.take(500),
-                        "areaName" to address.serviceAreaName.ifBlank { address.streetArea }.take(120),
-                        "serviceSubtotalPaise" to serviceSubtotalPaise,
-                        "approvedAddOnPaise" to 0L,
-                        "travelChargePaise" to travelChargePaise,
-                        "barberServicePayablePaise" to barberPayablePaise,
-                        "platformBookingFeePaise" to safeBookingFeePaise,
-                        "totalCustomerCostPaise" to totalCustomerCostPaise,
-                        "bookingFeeStatus" to feeStatus,
-                        "bookingFeeTxRef" to resolvedTxRef.take(120),
-                        "barberCommissionPaise" to safeCommissionPaise,
-                        "barberNetEarningsPaise" to barberNetPaise,
-                        "barberCommissionStatus" to "PENDING_SETTLEMENT",
-                        "directPaymentStatus" to "PENDING",
-                        "directPaymentMethod" to "NONE",
-                        "directPaymentDeclaredPaise" to 0L,
-                        "directPaymentRef" to "",
-                        "pendingAddOnServiceId" to "",
-                        "pendingAddOnName" to "",
-                        "pendingAddOnPricePaise" to 0L,
-                        "pendingAddOnDurationMin" to 0L,
-                        "pendingAddOnStatus" to "NONE",
-                        "customerNotes" to customerNotes.trim().take(500),
-                        "cancellationReason" to "",
-                        "policySnapshot" to policySnapshot.take(500),
-                        "hasReview" to false,
-                        "createdAt" to FieldValue.serverTimestamp(),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-
-                val fullAddr = "${address.flatHouse}, ${address.streetArea}, ${address.landmark} - PIN ${address.postalCode}"
-                tx.set(
-                    privRef,
-                    mapOf(
-                        "bookingId" to bookingId,
-                        "customerId" to uid,
-                        "barberId" to barber.barberId,
-                        "fullAddressSnapshot" to fullAddr.take(500),
-                        "accessInstructions" to address.accessInstructions.take(300),
-                        "customerPhone" to customerPhone.take(20),
-                        "createdAt" to FieldValue.serverTimestamp(),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-            }.await()
-            return bookingId
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    // --- 6. Observing Bookings & Protected Address ---
-
-    fun observeCustomerBookings(customerId: String): Flow<List<Booking>> {
-        val path = "bookings"
-        return db.collection(path)
-            .whereEqualTo("customerId", customerId)
-            .snapshots()
-            .map { snap -> snap.toObjects(Booking::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    fun observeBarberBookings(barberId: String): Flow<List<Booking>> {
-        val path = "bookings"
-        return db.collection(path)
-            .whereEqualTo("barberId", barberId)
-            .snapshots()
-            .map { snap -> snap.toObjects(Booking::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    fun observeAllBookingsForAdmin(): Flow<List<Booking>> {
-        val path = "bookings"
-        return db.collection(path)
-            .snapshots()
-            .map { snap -> snap.toObjects(Booking::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    suspend fun getBookingById(bookingId: String): Booking? {
-        val docRef = db.collection("bookings").document(bookingId)
-        try {
-            val snap = docRef.get().await()
-            return if (snap.exists()) snap.toObject(Booking::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) else null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.GET, docRef.path)
-            throw e
-        }
-    }
-
-    suspend fun getProtectedBookingAddress(bookingId: String): BookingPrivateAddress? {
-        val docRef = db.collection("bookings").document(bookingId).collection("privateDetails").document("main")
-        try {
-            val snap = docRef.get().await()
-            return if (snap.exists()) snap.toObject(BookingPrivateAddress::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) else null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.GET, docRef.path)
-            throw e
-        }
-    }
-
-    // --- 7. Customer & Barber Booking Transitions ---
-
-    suspend fun barberRespondToBooking(booking: Booking, accept: Boolean, reason: String = "") {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(booking.id)
-        val lockId = "${booking.barberId}_${booking.dateKey}_${booking.startHour}"
-        val lockRef = db.collection("slotLocks").document(lockId)
-        try {
-            val batch = db.batch()
-            if (accept) {
-                batch.update(
-                    bookingRef,
-                    mapOf(
-                        "status" to "CONFIRMED",
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-            } else {
-                batch.update(
-                    bookingRef,
-                    mapOf(
-                        "status" to "CANCELLED",
-                        "cancellationReason" to "Barber declined: ${reason.ifBlank { "Schedule conflict" }}".take(300),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-                batch.update(
-                    lockRef,
-                    mapOf(
-                        "status" to "RELEASED",
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-            }
-            batch.commit().await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    suspend fun barberUpdateExecutionStatus(bookingId: String, nextStatus: String) {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(bookingId)
-        try {
-            bookingRef.update(
-                mapOf(
-                    "status" to nextStatus,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    suspend fun barberRequestExtraService(bookingId: String, extraService: CatalogService) {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(bookingId)
-        try {
-            bookingRef.update(
-                mapOf(
-                    "pendingAddOnServiceId" to extraService.id,
-                    "pendingAddOnName" to extraService.name.take(100),
-                    "pendingAddOnPricePaise" to extraService.pricePaise,
-                    "pendingAddOnDurationMin" to extraService.durationMinutes,
-                    "pendingAddOnStatus" to "REQUESTED",
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    suspend fun customerRespondToExtraService(booking: Booking, approve: Boolean, commissionBps: Long = 1500L) {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(booking.id)
-        try {
-            if (approve && booking.pendingAddOnStatus == "REQUESTED") {
-                val newApprovedAddOn = booking.approvedAddOnPaise + booking.pendingAddOnPricePaise
-                val newBarberPayable = booking.serviceSubtotalPaise + newApprovedAddOn + booking.travelChargePaise
-                val newTotalCost = newBarberPayable + booking.platformBookingFeePaise
-                val newCommission = ((newBarberPayable * commissionBps) / 10000L).coerceIn(0L, newBarberPayable)
-                val newNet = (newBarberPayable - newCommission).coerceAtLeast(0L)
-                val newSummary = "${booking.serviceNamesSummary} + ${booking.pendingAddOnName} (${CurrencyUtils.formatRupees(booking.pendingAddOnPricePaise)})"
-                bookingRef.update(
-                    mapOf(
-                        "approvedAddOnPaise" to newApprovedAddOn,
-                        "barberServicePayablePaise" to newBarberPayable,
-                        "totalCustomerCostPaise" to newTotalCost,
-                        "barberCommissionPaise" to newCommission,
-                        "barberNetEarningsPaise" to newNet,
-                        "durationMinutes" to (booking.durationMinutes + booking.pendingAddOnDurationMin).coerceAtMost(600L),
-                        "serviceNamesSummary" to newSummary.take(500),
-                        "pendingAddOnStatus" to "APPROVED",
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
-            } else {
-                bookingRef.update(
-                    mapOf(
-                        "pendingAddOnStatus" to "DECLINED",
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    /**
-     * Records direct customer-to-barber payment SEPARATELY from service completion so that
-     * a payment dispute or unconfirmed UPI transfer never corrupts the COMPLETED booking history.
-     */
-    suspend fun barberRecordDirectPayment(
-        bookingId: String,
-        declaredStatus: String,
-        method: String,
-        amountReceivedPaise: Long,
-        referenceNote: String
-    ) {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(bookingId)
-        try {
-            val updates = mapOf<String, Any>(
-                "directPaymentStatus" to declaredStatus,
-                "directPaymentMethod" to method,
-                "directPaymentDeclaredPaise" to amountReceivedPaise.coerceAtLeast(0L),
-                "directPaymentRef" to referenceNote.trim().take(120),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-            bookingRef.update(updates).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    suspend fun customerVerifyDirectPayment(bookingId: String, confirmPaid: Boolean, disputeReason: String = "") {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(bookingId)
-        try {
-            if (confirmPaid) {
-                bookingRef.update(
-                    mapOf(
-                        "directPaymentStatus" to "CUSTOMER_CONFIRMED",
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
-            } else {
-                bookingRef.update(
-                    mapOf(
-                        "status" to "DISPUTED",
-                        "directPaymentStatus" to "DISPUTED",
-                        "cancellationReason" to "Payment dispute: ${disputeReason.ifBlank { "Amount mismatch" }}".take(300),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    suspend fun customerCancelBooking(booking: Booking, reason: String) {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(booking.id)
-        val lockId = "${booking.barberId}_${booking.dateKey}_${booking.startHour}"
-        val lockRef = db.collection("slotLocks").document(lockId)
-        try {
-            val batch = db.batch()
-            val nextFeeStatus = if (booking.platformBookingFeePaise > 0L) "REFUND_PENDING" else "ZERO_CUSTOMER_FEE"
-            batch.update(
-                bookingRef,
-                mapOf(
-                    "status" to "CANCELLED",
-                    "bookingFeeStatus" to nextFeeStatus,
-                    "cancellationReason" to reason.ifBlank { "Customer cancelled" }.take(300),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-            batch.update(
-                lockRef,
-                mapOf(
-                    "status" to "RELEASED",
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-            batch.commit().await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    // --- 8. Reviews & Support Tickets ---
-
-    fun observeReviewsForBarber(barberId: String): Flow<List<Review>> {
-        val path = "reviews"
-        return db.collection(path)
-            .whereEqualTo("barberId", barberId)
-            .whereEqualTo("status", "PUBLISHED")
-            .snapshots()
-            .map { snap -> snap.toObjects(Review::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    suspend fun submitCustomerReview(
-        booking: Booking,
-        customerName: String,
-        rating: Long,
-        comment: String
-    ) {
-        val uid = requireUserId()
-        val reviewRef = db.collection("reviews").document(UUID.randomUUID().toString())
-        val bookingRef = db.collection("bookings").document(booking.id)
-        try {
-            val batch = db.batch()
-            batch.set(
-                reviewRef,
-                mapOf(
-                    "bookingId" to booking.id,
-                    "customerId" to uid,
-                    "customerName" to customerName.ifBlank { "Verified Customer" }.take(100),
-                    "barberId" to booking.barberId,
-                    "rating" to rating.coerceIn(1L, 5L),
-                    "comment" to comment.trim().take(600),
-                    "status" to "PUBLISHED",
+                    "skills" to effectiveSkills,
+                    "perfectionBadge" to badgeLabel,
+                    "shopName" to shopName.trim().ifBlank { "${name.trim()} Home Studio" }.take(120),
+                    "shopAddress" to shopAddress.trim().ifBlank { fallbackLoc.streetArea }.take(240),
+                    "homeVisitAvailable" to true,
+                    "latitude" to initLat.coerceIn(-90.0, 90.0),
+                    "longitude" to initLon.coerceIn(-180.0, 180.0),
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
+            ).await()
+        } else {
+            val updates = mutableMapOf<String, Any>(
+                "name" to name.trim().take(100),
+                "phone" to phone.trim().take(30),
+                "gender" to cleanGender,
+                "servesLadies" to servesLadies,
+                "servesMen" to servesMen,
+                "bio" to bio.trim().take(500),
+                "experienceYears" to experienceYears.coerceIn(0L, 60L),
+                "serviceIds" to serviceIds.take(50),
+                "serviceAreaIds" to serviceAreaIds.take(20),
+                "workingDays" to cleanWorkingDays,
+                "workStartHour" to workStartHour.coerceIn(0L, 23L),
+                "workEndHour" to workEndHour.coerceIn(1L, 24L),
+                "breakStartHour" to breakStartHour.coerceIn(0L, 23L),
+                "breakEndHour" to breakEndHour.coerceIn(0L, 24L),
+                "travelBufferMinutes" to travelBufferMinutes.coerceIn(0L, 180L),
+                "upiId" to upiId.trim().take(100),
+                "skills" to effectiveSkills,
+                "perfectionBadge" to badgeLabel,
+                "shopName" to shopName.trim().ifBlank { "${name.trim()} Home Studio" }.take(120),
+                "shopAddress" to shopAddress.trim().ifBlank { "Active Home Dispatch Zone" }.take(240),
+                "updatedAt" to FieldValue.serverTimestamp()
             )
-            batch.update(
-                bookingRef,
-                mapOf(
-                    "hasReview" to true,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-            batch.commit().await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, reviewRef.path)
-            throw e
+            if (latitude != 0.0 || longitude != 0.0) {
+                updates["latitude"] = latitude.coerceIn(-90.0, 90.0)
+                updates["longitude"] = longitude.coerceIn(-180.0, 180.0)
+            }
+            profileRef.update(updates).await()
         }
     }
 
-    fun observeMySupportTickets(userId: String): Flow<List<SupportTicket>> {
-        val path = "supportTickets"
-        return db.collection(path)
-            .whereEqualTo("createdBy", userId)
-            .snapshots()
-            .map { snap -> snap.toObjects(SupportTicket::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
+    suspend fun toggleBarberOnline(isOnline: Boolean, liveLat: Double = 0.0, liveLon: Double = 0.0): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val updates = mutableMapOf<String, Any>(
+            "isOnline" to isOnline,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (liveLat != 0.0 || liveLon != 0.0) {
+            updates["latitude"] = liveLat.coerceIn(-90.0, 90.0)
+            updates["longitude"] = liveLon.coerceIn(-180.0, 180.0)
+        }
+        db.collection("barberProfiles").document(uid).update(updates).await()
     }
 
-    fun observeAllSupportTicketsForAdmin(): Flow<List<SupportTicket>> {
-        val path = "supportTickets"
-        return db.collection(path)
-            .snapshots()
-            .map { snap -> snap.toObjects(SupportTicket::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
+    suspend fun updateBarberProfileLocation(
+        latitude: Double,
+        longitude: Double,
+        shopAddress: String? = null
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        if (latitude == 0.0 && longitude == 0.0) return@runCatching
+        val updates = mutableMapOf<String, Any>(
+            "latitude" to latitude.coerceIn(-90.0, 90.0),
+            "longitude" to longitude.coerceIn(-180.0, 180.0),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (!shopAddress.isNullOrBlank()) {
+            updates["shopAddress"] = shopAddress.trim().take(240)
+        }
+        db.collection("barberProfiles").document(uid).update(updates).await()
     }
+
+    // --- Support Tickets ---
 
     suspend fun createSupportTicket(
         creatorRole: String,
@@ -924,657 +1343,244 @@ class MarketplaceRepository(private val db: FirebaseFirestore) {
         category: String,
         subject: String,
         description: String
-    ) {
-        val uid = requireUserId()
-        val docRef = db.collection("supportTickets").document(UUID.randomUUID().toString())
-        try {
-            docRef.set(
-                mapOf(
-                    "createdBy" to uid,
-                    "creatorRole" to creatorRole,
-                    "bookingId" to bookingId.take(128),
-                    "category" to category,
-                    "subject" to subject.trim().take(150),
-                    "description" to description.trim().take(1000),
-                    "status" to "OPEN",
-                    "adminResolution" to "",
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, docRef.path)
-            throw e
-        }
-    }
-
-    // --- 9. Admin Operations, Initial Catalog Auto-Ensure & Audit Logs ---
-
-    fun observeAuditLogsForAdmin(): Flow<List<AuditLog>> {
-        val path = "auditLogs"
-        return db.collection(path)
-            .snapshots()
-            .map { snap -> snap.toObjects(AuditLog::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    fun observeAllUsersForAdmin(): Flow<List<UserAccount>> {
-        val path = "users"
-        return db.collection(path)
-            .snapshots()
-            .map { snap -> snap.toObjects(UserAccount::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) }
-            .catch { e ->
-                if (e is Exception) handleFirestoreError(e, OperationType.LIST, path)
-                throw e
-            }
-    }
-
-    private suspend fun recordAudit(action: String, entityType: String, entityId: String, reason: String) {
-        val uid = requireUserId()
-        val logRef = db.collection("auditLogs").document(UUID.randomUUID().toString())
-        logRef.set(
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val ticketId = "tkt_${UUID.randomUUID().toString().take(8)}"
+        db.collection("supportTickets").document(ticketId).set(
             mapOf(
-                "actorId" to uid,
-                "action" to action.take(100),
-                "entityType" to entityType.take(60),
-                "entityId" to entityId.take(128),
-                "reason" to reason.ifBlank { "Admin operational action" }.take(500),
-                "createdAt" to FieldValue.serverTimestamp()
-            )
-        ).await()
-    }
-
-    suspend fun adminSetBarberApproval(barberId: String, approvalStatus: String, reason: String) {
-        requireUserId()
-        val barberRef = db.collection("barberProfiles").document(barberId)
-        val userRef = db.collection("users").document(barberId)
-        try {
-            barberRef.update(
-                mapOf(
-                    "approvalStatus" to approvalStatus,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            val userSnap = userRef.get().await()
-            if (userSnap.exists()) {
-                val mappedStatus = when (approvalStatus) {
-                    "APPROVED" -> "ACTIVE"
-                    "SUSPENDED" -> "SUSPENDED"
-                    "REJECTED" -> "REJECTED"
-                    else -> "PENDING"
-                }
-                userRef.update(
-                    mapOf(
-                        "status" to mappedStatus,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
-            }
-            recordAudit("BARBER_STATUS_$approvalStatus", "BarberProfile", barberId, reason)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, barberRef.path)
-            throw e
-        }
-    }
-
-    suspend fun adminSaveService(
-        serviceId: String?,
-        name: String,
-        category: String,
-        description: String,
-        pricePaise: Long,
-        durationMinutes: Long,
-        isActive: Boolean,
-        isPackage: Boolean,
-        instructions: String,
-        sortOrder: Long
-    ) {
-        requireUserId()
-        val id = serviceId ?: "svc_${UUID.randomUUID().toString().replace("-", "").take(10)}"
-        val docRef = db.collection("services").document(id)
-        try {
-            val snap = docRef.get().await()
-            val payload = mutableMapOf<String, Any>(
-                "name" to name.trim().take(100),
+                "createdBy" to uid,
+                "creatorRole" to if (creatorRole == "BARBER") "BARBER" else "CUSTOMER",
+                "bookingId" to bookingId,
                 "category" to category,
-                "description" to description.trim().take(500),
-                "pricePaise" to pricePaise.coerceAtLeast(0L),
-                "durationMinutes" to durationMinutes.coerceIn(5L, 480L),
-                "isActive" to isActive,
-                "isPackage" to isPackage,
-                "instructions" to instructions.trim().take(300),
-                "sortOrder" to sortOrder,
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-            if (!snap.exists()) {
-                payload["createdAt"] = FieldValue.serverTimestamp()
-            } else {
-                payload["createdAt"] = snap.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()
-            }
-            docRef.set(payload).await()
-            recordAudit(if (snap.exists()) "UPDATE_SERVICE" else "CREATE_SERVICE", "Service", id, "Updated service $name price=${CurrencyUtils.formatRupees(pricePaise)}")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
-            throw e
-        }
-    }
-
-    suspend fun adminUpdatePlatformConfig(
-        bookingFeeType: String,
-        fixedBookingFeePaise: Long = 3000L,
-        percentageBookingFeeBps: Long = 0L,
-        barberCommissionBps: Long = 0L,
-        barberFlatFeePaise: Long = 0L,
-        freeCancellationCutoffHours: Long,
-        slotHoldMinutes: Long,
-        policyText: String,
-        maintenanceMode: Boolean
-    ) {
-        val uid = requireUserId()
-        val docRef = db.collection("platformConfig").document("global")
-        try {
-            docRef.set(
-                mapOf(
-                    "bookingFeeType" to bookingFeeType,
-                    "fixedBookingFeePaise" to fixedBookingFeePaise.coerceIn(0L, 500000L),
-                    "percentageBookingFeeBps" to percentageBookingFeeBps.coerceIn(0L, 5000L),
-                    "barberCommissionBps" to barberCommissionBps.coerceIn(0L, 5000L),
-                    "barberFlatFeePaise" to barberFlatFeePaise.coerceIn(0L, 500000L),
-                    "freeCancellationCutoffHours" to freeCancellationCutoffHours.coerceIn(0L, 72L),
-                    "slotHoldMinutes" to slotHoldMinutes.coerceIn(1L, 60L),
-                    "policyText" to policyText.trim().take(1000),
-                    "maintenanceMode" to maintenanceMode,
-                    "updatedBy" to uid,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            recordAudit("UPDATE_PLATFORM_POLICY", "PlatformConfig", "global", "Updated booking confirmation fee (${CurrencyUtils.formatRupees(fixedBookingFeePaise)}) & cancellation policy")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
-            throw e
-        }
-    }
-
-    suspend fun adminResolveDisputeOrOverrideBooking(
-        booking: Booking,
-        newStatus: String,
-        newFeeStatus: String,
-        newDirectPaymentStatus: String,
-        replacementBarber: BarberProfile?,
-        reason: String
-    ) {
-        requireUserId()
-        val bookingRef = db.collection("bookings").document(booking.id)
-        try {
-            val updates = mutableMapOf<String, Any>(
-                "status" to newStatus,
-                "bookingFeeStatus" to newFeeStatus,
-                "directPaymentStatus" to newDirectPaymentStatus,
-                "cancellationReason" to reason.trim().take(300),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-            if (replacementBarber != null && replacementBarber.barberId != booking.barberId) {
-                updates["barberId"] = replacementBarber.barberId
-                updates["barberName"] = replacementBarber.name.take(100)
-                val privRef = bookingRef.collection("privateDetails").document("main")
-                val privSnap = privRef.get().await()
-                if (privSnap.exists()) {
-                    privRef.update(
-                        mapOf(
-                            "barberId" to replacementBarber.barberId,
-                            "updatedAt" to FieldValue.serverTimestamp()
-                        )
-                    ).await()
-                }
-            }
-            bookingRef.update(updates).await()
-            recordAudit("BOOKING_OVERRIDE", "Booking", booking.id, reason)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, bookingRef.path)
-            throw e
-        }
-    }
-
-    suspend fun adminResolveSupportTicket(ticketId: String, newStatus: String, resolutionNote: String) {
-        requireUserId()
-        val docRef = db.collection("supportTickets").document(ticketId)
-        try {
-            docRef.update(
-                mapOf(
-                    "status" to newStatus,
-                    "adminResolution" to resolutionNote.trim().take(1000),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            recordAudit("RESOLVE_TICKET", "SupportTicket", ticketId, resolutionNote)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
-            throw e
-        }
-    }
-
-    /**
-     * Ensures the canonical service catalog, service zones, and 4 partner barber shops exist
-     * when a brand-new database has no services yet, so first-time customers immediately see
-     * services with photography, nearest barber shops, and recommended barbers with skills.
-     */
-    suspend fun ensureCanonicalCatalogIfEmpty(isAdminUser: Boolean) {
-        requireUserId()
-        try {
-            val existingServices = db.collection("services").whereEqualTo("isActive", true).limit(1).get().await()
-            if (!existingServices.isEmpty) {
-                // Ensure 4th partner shop barber_kabir_atelier also exists if missing
-                val kabirDoc = db.collection("barberProfiles").document("barber_kabir_atelier").get().await()
-                if (!kabirDoc.exists()) {
-                    seedSinglePartnerShopBarber(
-                        id = "barber_kabir_atelier",
-                        name = "Kabir Malhotra",
-                        bio = "Master Burst Fade & Razor Line-Up Artist. Dispatches from Urban Fade & Beard House for home visits.",
-                        expYears = 7L,
-                        rating = 4.9,
-                        reviews = 38L,
-                        skills = listOf("Burst & Drop Fade", "Moustache Styling", "Charcoal Cleanup", "Razor Line-Up"),
-                        perfection = "98% Razor Line Precision",
-                        shopName = "Urban Fade & Beard House",
-                        shopAddress = "Studio 7, Metro Boulevard, Whitefield & Central",
-                        lat = 12.9698,
-                        lon = 77.7499
-                    )
-                }
-                return
-            }
-            if (isAdminUser) {
-                adminBootstrapMasterCatalog()
-            } else {
-                seedCanonicalCatalogForColdStart()
-            }
-        } catch (_: Exception) {
-            // Non-fatal on cold start
-        }
-    }
-
-    private suspend fun seedSinglePartnerShopBarber(
-        id: String,
-        name: String,
-        bio: String,
-        expYears: Long,
-        rating: Double,
-        reviews: Long,
-        skills: List<String>,
-        perfection: String,
-        shopName: String,
-        shopAddress: String,
-        lat: Double,
-        lon: Double
-    ) {
-        val allSvcIds = canonicalCatalogSpecs().map { it.id }
-        val allAreaIds = listOf("zone_central", "zone_south", "zone_west")
-        db.collection("barberProfiles").document(id).set(
-            mapOf(
-                "barberId" to id,
-                "name" to name,
-                "bio" to bio,
-                "experienceYears" to expYears,
-                "approvalStatus" to "APPROVED",
-                "isOnline" to true,
-                "ratingAvg" to rating,
-                "reviewCount" to reviews,
-                "serviceIds" to allSvcIds,
-                "serviceAreaIds" to allAreaIds,
-                "workingDays" to listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
-                "workStartHour" to 9L,
-                "workEndHour" to 21L,
-                "breakStartHour" to 14L,
-                "breakEndHour" to 15L,
-                "travelBufferMinutes" to 15L,
-                "upiId" to "${id.substringAfter("_")}@upi",
-                "skills" to skills,
-                "perfectionBadge" to perfection,
-                "shopName" to shopName,
-                "shopAddress" to shopAddress,
-                "homeVisitAvailable" to true,
-                "latitude" to lat,
-                "longitude" to lon,
+                "subject" to subject.trim().take(150),
+                "description" to description.trim().take(1000),
+                "status" to "OPEN",
+                "adminResolution" to "",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
         ).await()
     }
 
-    private data class SeedSvc(
-        val id: String,
-        val name: String,
-        val cat: String,
-        val desc: String,
-        val paise: Long,
-        val min: Long,
-        val pkg: Boolean
-    )
+    // --- Admin Actions + Mandatory Audit Logging ---
 
-    private fun canonicalCatalogSpecs(): List<SeedSvc> = listOf(
-        SeedSvc("svc_classic_cut", "Haircut", "HAIRCUTS", "Clean scissor & clipper haircut at home with protective cape and floor sheet.", 30000L, 30L, false),
-        SeedSvc("svc_beard_trim", "Beard Trim", "BEARD_MOUSTACHE", "Neat beard shaping, cheek razor line-up, and neckline finish.", 15000L, 15L, false),
-        SeedSvc("svc_pkg_essential", "Haircut + Beard", "PACKAGES", "Popular home combo: Precision Haircut + Beard Trim & Razor Line-Up.", 40000L, 45L, true),
-        SeedSvc("svc_skin_fade", "Skin Fade Haircut", "HAIRCUTS", "Zero, low, or mid skin fade with crisp hairline detailing.", 35000L, 40L, false),
-        SeedSvc("svc_kids_cut", "Kids Haircut", "HAIRCUTS", "Gentle, mess-free haircut at home for children under 12.", 25000L, 30L, false),
-        SeedSvc("svc_senior_cut", "Senior Comfort Haircut", "HAIRCUTS", "Comfortable, unhurried haircut at home for elders.", 25000L, 30L, false),
-        SeedSvc("svc_clean_shave", "Hot Towel Clean Shave", "BEARD_MOUSTACHE", "Rich foam shave with fresh disposable blade and soothing balm.", 18000L, 25L, false),
-        SeedSvc("svc_hair_wash", "Hair Wash & Blow Dry", "HAIR_CARE", "Refreshing shampoo rinse and styled blow-dry finish.", 10000L, 15L, false),
-        SeedSvc("svc_scalp_oil", "Head Oil Massage", "HAIR_CARE", "20-minute relaxing warm oil head and shoulder massage.", 20000L, 20L, false),
-        SeedSvc("svc_face_cleanup", "Detan Face Cleanup", "ADD_ONS", "Deep pore cleanse, scrub, and charcoal detan mask.", 35000L, 30L, false),
-        SeedSvc("svc_brow_neck", "Neck & Eyebrow Tidy", "ADD_ONS", "Quick eyebrow, ear, and neckline cleanup.", 8000L, 10L, false),
-        SeedSvc("svc_pkg_complete", "Complete Grooming Combo", "PACKAGES", "Haircut + Beard Trim + Detan Face Cleanup + Head Massage.", 79900L, 85L, true)
-    )
-
-    private fun fullMasterCatalogSpecs(): List<SeedSvc> = listOf(
-        SeedSvc("svc_normal_head_cut", "Normal Head Cut", "HAIRCUTS", "Clean, balanced everyday head cut using sanitized clippers & scissors with even side grading and neat top trim.", 19900L, 25L, false),
-        SeedSvc("svc_traditional_cut", "Traditional Haircut (Side-Part / Fauji)", "HAIRCUTS", "Classic Indian barbershop scissor-over-comb haircut with neat side-part, ear contour, and disposable razor neck finish.", 22900L, 30L, false),
-        SeedSvc("svc_classic_cut", "Classic Scissor & Clipper Haircut", "HAIRCUTS", "Tailored executive scissor layering & clipper blend customized to your crown and face shape.", 30000L, 30L, false),
-        SeedSvc("svc_skin_fade", "Zero / Mid / High Skin Fade", "HAIRCUTS", "Seamless foil-shaver & precision guard gradient fade with razor-sharp hairline detailing.", 35000L, 40L, false),
-        SeedSvc("svc_crew_buzz_cut", "Crew Cut / Uniform Buzz Cut", "HAIRCUTS", "Low-maintenance military crew or single-guard buzz cut with sharp temple and nape outline.", 17900L, 20L, false),
-        SeedSvc("svc_kids_cut", "Kids' Gentle Home Haircut", "HAIRCUTS", "Patient, mess-free haircut at home for children under 12 with quiet clippers.", 25000L, 30L, false),
-        SeedSvc("svc_senior_cut", "Senior Comfort Haircut", "HAIRCUTS", "Relaxed, unhurried at-home haircut designed for elders in their favorite armchair.", 25000L, 30L, false),
-        SeedSvc("svc_beard_trim", "Beard Sculpting & Razor Line-Up", "BEARD_MOUSTACHE", "Symmetrical beard shaping, sharp cheek line-up, moustache trim, and neckline finish.", 15000L, 20L, false),
-        SeedSvc("svc_foam_shave", "Traditional Brush & Foam Clean Shave", "BEARD_MOUSTACHE", "Classic antiseptic cream lather shave with fresh single-use blade, alum block & aftershave splash.", 12900L, 20L, false),
-        SeedSvc("svc_clean_shave", "Hot Towel Luxury Clean Shave", "BEARD_MOUSTACHE", "Two-pass rich lather straight-razor shave with aromatic steam towel & cooling balm.", 18000L, 25L, false),
-        SeedSvc("svc_scalp_oil", "Ayurvedic Champi Head & Shoulder Massage", "HAIR_CARE", "20-minute stress-relief warm coconut, almond, or cooling Navratna oil scalp rejuvenation.", 20000L, 20L, false),
-        SeedSvc("svc_hair_wash", "Refreshing Hair Wash & Blow Dry", "HAIR_CARE", "Deep cleansing shampoo rinse and salon-styled blow dry volume finish.", 10000L, 15L, false),
-        SeedSvc("svc_face_cleanup", "Charcoal Detan Face Cleanup", "ADD_ONS", "Deep pore cleanse, walnut exfoliating scrub, and peel-off activated charcoal detan mask.", 35000L, 30L, false),
-        SeedSvc("svc_brow_neck", "Eyebrow, Ear & Neck Detailing", "ADD_ONS", "Crisp finishing touches for eyebrows, ear contour, and clean nape hairline.", 8000L, 10L, false),
-        SeedSvc("svc_pkg_essential", "Normal / Classic Cut + Beard + Wash Combo", "PACKAGES", "Everyday value package: Precision Haircut, Beard Sculpt & Refreshing Hair Wash.", 49900L, 60L, true),
-        SeedSvc("svc_pkg_complete", "Executive Fade + Beard + Detan + Champi", "PACKAGES", "Complete home transformation: Skin Fade + Razor Beard + Charcoal Detan + Champi Massage.", 89900L, 90L, true),
-        SeedSvc("svc_pkg_royal_home", "Groom's & Festive Luxury Home Ritual", "PACKAGES", "95-minute festive grooming ritual: Signature Cut, Hot Towel Shave, Detan Facial, Neck Polish & Styling.", 109900L, 95L, true)
-    )
-
-    private data class SeedBarberShop(
-        val id: String,
-        val name: String,
-        val bio: String,
-        val exp: Long,
-        val rating: Double,
-        val reviews: Long,
-        val skills: List<String>,
-        val perfection: String,
-        val shopName: String,
-        val shopAddr: String,
-        val lat: Double,
-        val lon: Double
-    )
-
-    private fun canonicalBarberShopSpecs(): List<SeedBarberShop> = listOf(
-        SeedBarberShop(
-            id = "barber_arman_master",
-            name = "Arman Shaikh",
-            bio = "Master Fade & Beard Specialist with hospital-grade sanitized cordless tools. Dispatches to homes within 25 mins.",
-            exp = 9L,
-            rating = 4.9,
-            reviews = 64L,
-            skills = listOf("Zero Skin Fade", "Razor Beard Sculpt", "Textured Crop", "Sharp Hairline"),
-            perfection = "99% Skin Fade Perfection",
-            shopName = "Royal Blade Grooming Atelier",
-            shopAddr = "Shop #14, 100ft Road, Indiranagar Central",
-            lat = 12.9784,
-            lon = 77.6408
-        ),
-        SeedBarberShop(
-            id = "barber_vikram_stylist",
-            name = "Vikram Rathore",
-            bio = "Senior Celebrity Stylist & Executive Grooming Expert. Known for scissor layering and luxury facials at home.",
-            exp = 8L,
-            rating = 4.8,
-            reviews = 51L,
-            skills = listOf("Executive Scissor Cut", "Detan Facial", "Hot Towel Shave", "Blow-Dry Styling"),
-            perfection = "98% Executive Finish",
-            shopName = "Crown & Clipper Men's Studio",
-            shopAddr = "2nd Cross, Signature Plaza, Koramangala 4th Block",
-            lat = 12.9352,
-            lon = 77.6245
-        ),
-        SeedBarberShop(
-            id = "barber_danish_pro",
-            name = "Danish Siddiqui",
-            bio = "Classic Taper, Kids & Senior Comfort specialist. Patient, punctual, zero-mess floor sheet setup.",
-            exp = 7L,
-            rating = 4.9,
-            reviews = 47L,
-            skills = listOf("Classic Scissor Cut", "Kids Gentle Cut", "Senior Home Care", "Head Massage"),
-            perfection = "99% Family & Scissor Craft",
-            shopName = "Heritage Scissor & Shave Lounge",
-            shopAddr = "Ground Floor, Parkview Arcade, MG & Central Zone",
-            lat = 12.9719,
-            lon = 77.6412
-        ),
-        SeedBarberShop(
-            id = "barber_kabir_atelier",
-            name = "Kabir Malhotra",
-            bio = "Burst Fade, Mullet Taper & Moustache Sculpting Pro. Available for both salon visits and doorstep grooming.",
-            exp = 7L,
-            rating = 4.8,
-            reviews = 38L,
-            skills = listOf("Burst & Drop Fade", "Moustache Styling", "Charcoal Cleanup", "Razor Line-Up"),
-            perfection = "98% Razor Line Precision",
-            shopName = "Urban Fade & Beard House",
-            shopAddr = "Studio 7, Metro Boulevard, Tech Corridor",
-            lat = 12.9698,
-            lon = 77.7499
-        )
-    )
-
-    private suspend fun seedCanonicalCatalogForColdStart() {
-        val batch = db.batch()
-        val areas = listOf(
-            Triple("zone_central", "Central & Indiranagar Zone", listOf("560001", "560038", "560008", "400001", "110001")),
-            Triple("zone_south", "Koramangala & HSR Layout Zone", listOf("560034", "560102", "400050", "110016")),
-            Triple("zone_west", "Whitefield & Tech Corridor Zone", listOf("560066", "560037", "400076", "122002"))
-        )
-        areas.forEachIndexed { idx, (id, name, pins) ->
-            batch.set(
-                db.collection("serviceAreas").document(id),
-                mapOf(
-                    "name" to name,
-                    "postalCodes" to pins,
-                    "travelChargePaise" to if (idx == 2) 2000L else 0L,
-                    "maxDistanceKm" to 15L,
-                    "isActive" to true,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
+    private suspend fun recordAudit(action: String, entityType: String, entityId: String, reason: String) {
+        val uid = currentUid() ?: return
+        val logId = "aud_${UUID.randomUUID().toString().take(10)}"
+        db.collection("auditLogs").document(logId).set(
+            mapOf(
+                "actorId" to uid,
+                "action" to action.take(100),
+                "entityType" to entityType.take(60),
+                "entityId" to entityId.take(128),
+                "reason" to reason.ifBlank { "Admin operation" }.take(500),
+                "createdAt" to FieldValue.serverTimestamp()
             )
-        }
-
-        val catalog = canonicalCatalogSpecs()
-        catalog.forEachIndexed { idx, s ->
-            batch.set(
-                db.collection("services").document(s.id),
-                mapOf(
-                    "name" to s.name,
-                    "category" to s.cat,
-                    "description" to s.desc,
-                    "pricePaise" to s.paise,
-                    "durationMinutes" to s.min,
-                    "isActive" to true,
-                    "isPackage" to s.pkg,
-                    "instructions" to "Please keep a sturdy chair, power socket, and towel area accessible.",
-                    "sortOrder" to (idx + 1).toLong(),
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-        }
-
-        val allSvcIds = catalog.map { it.id }
-        val allAreaIds = areas.map { it.first }
-        canonicalBarberShopSpecs().forEach { b ->
-            batch.set(
-                db.collection("barberProfiles").document(b.id),
-                mapOf(
-                    "barberId" to b.id,
-                    "name" to b.name,
-                    "bio" to b.bio,
-                    "experienceYears" to b.exp,
-                    "approvalStatus" to "APPROVED",
-                    "isOnline" to true,
-                    "ratingAvg" to b.rating,
-                    "reviewCount" to b.reviews,
-                    "serviceIds" to allSvcIds,
-                    "serviceAreaIds" to allAreaIds,
-                    "workingDays" to listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
-                    "workStartHour" to 9L,
-                    "workEndHour" to 21L,
-                    "breakStartHour" to 14L,
-                    "breakEndHour" to 15L,
-                    "travelBufferMinutes" to 15L,
-                    "upiId" to "${b.id.substringAfter("_")}@upi",
-                    "skills" to b.skills,
-                    "perfectionBadge" to b.perfection,
-                    "shopName" to b.shopName,
-                    "shopAddress" to b.shopAddr,
-                    "homeVisitAvailable" to true,
-                    "latitude" to b.lat,
-                    "longitude" to b.lon,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-        }
-        batch.commit().await()
+        ).await()
     }
 
-    /**
-     * Admin one-tap bootstrap/refresh to populate the grooming service catalog,
-     * supported service zones, Barber Commission policy (₹0 customer fee, 15% barber commission),
-     * and partner barber shops with verified skills & GPS coordinates.
-     */
-    suspend fun adminBootstrapMasterCatalog() {
-        val uid = requireUserId()
-        try {
-            val batch = db.batch()
-
-            // 1. Platform Config (₹30 Booking Confirmation Fee + Separate Direct Barber Payment)
-            batch.set(
-                db.collection("platformConfig").document("global"),
-                mapOf(
-                    "bookingFeeType" to "FIXED",
-                    "fixedBookingFeePaise" to 3000L,
-                    "percentageBookingFeeBps" to 0L,
-                    "barberCommissionBps" to 0L,
-                    "barberFlatFeePaise" to 0L,
-                    "freeCancellationCutoffHours" to 2L,
-                    "slotHoldMinutes" to 10L,
-                    "policyText" to "Free cancellation up to 2 hours before your appointment. Pay the ₹30 booking confirmation fee now to confirm your barber, and pay the service charge directly to your barber after completion by Cash or UPI.",
-                    "maintenanceMode" to false,
-                    "updatedBy" to uid,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
+    suspend fun adminSetBarberApproval(
+        barberId: String,
+        newStatus: String,
+        reason: String
+    ): Result<Unit> = runCatching {
+        db.collection("barberProfiles").document(barberId).update(
+            mapOf(
+                "approvalStatus" to newStatus,
+                "updatedAt" to FieldValue.serverTimestamp()
             )
-
-            // 2. Service Areas
-            val areas = listOf(
-                Triple("zone_central", "Central & Indiranagar Zone", listOf("560001", "560038", "560008", "400001", "110001")),
-                Triple("zone_south", "Koramangala & HSR Layout Zone", listOf("560034", "560102", "400050", "110016")),
-                Triple("zone_west", "Whitefield & Tech Corridor Zone", listOf("560066", "560037", "400076", "122002"))
-            )
-            areas.forEachIndexed { idx, (id, name, pins) ->
-                val areaDoc = db.collection("serviceAreas").document(id)
-                val existingSnap = areaDoc.get().await()
-                batch.set(
-                    areaDoc,
-                    mapOf(
-                        "name" to name,
-                        "postalCodes" to pins,
-                        "travelChargePaise" to if (idx == 2) 2000L else 0L,
-                        "maxDistanceKm" to 15L,
-                        "isActive" to true,
-                        "createdAt" to (existingSnap.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
+        ).await()
+        runCatching {
+            val userDoc = db.collection("users").document(barberId).get().await()
+            if (userDoc.exists()) {
+                val mappedUserStatus = if (newStatus == "APPROVED") "ACTIVE" else newStatus
+                db.collection("users").document(barberId).update(
+                    mapOf("status" to mappedUserStatus, "updatedAt" to FieldValue.serverTimestamp())
+                ).await()
             }
-
-            // 3. Complete Service Catalog (All 17 Canonical Haircut & Grooming Services)
-            val catalog = fullMasterCatalogSpecs()
-            catalog.forEachIndexed { idx, s ->
-                val svcDoc = db.collection("services").document(s.id)
-                val existingSnap = svcDoc.get().await()
-                batch.set(
-                    svcDoc,
-                    mapOf(
-                        "name" to s.name,
-                        "category" to s.cat,
-                        "description" to s.desc,
-                        "pricePaise" to s.paise,
-                        "durationMinutes" to s.min,
-                        "isActive" to true,
-                        "isPackage" to s.pkg,
-                        "instructions" to "Please keep a sturdy chair, power socket, and towel area accessible.",
-                        "sortOrder" to (idx + 1).toLong(),
-                        "createdAt" to (existingSnap.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-            }
-
-            // 4. Partner Barber Shops & Master Barbers with Skills
-            val allSvcIds = catalog.map { it.id }
-            val allAreaIds = areas.map { it.first }
-            canonicalBarberShopSpecs().forEach { b ->
-                val bDoc = db.collection("barberProfiles").document(b.id)
-                val existingSnap = bDoc.get().await()
-                batch.set(
-                    bDoc,
-                    mapOf(
-                        "barberId" to b.id,
-                        "name" to b.name,
-                        "bio" to b.bio,
-                        "experienceYears" to b.exp,
-                        "approvalStatus" to "APPROVED",
-                        "isOnline" to true,
-                        "ratingAvg" to b.rating,
-                        "reviewCount" to b.reviews,
-                        "serviceIds" to allSvcIds,
-                        "serviceAreaIds" to allAreaIds,
-                        "workingDays" to listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"),
-                        "workStartHour" to 9L,
-                        "workEndHour" to 21L,
-                        "breakStartHour" to 14L,
-                        "breakEndHour" to 15L,
-                        "travelBufferMinutes" to 15L,
-                        "upiId" to "${b.id.substringAfter("_")}@upi",
-                        "skills" to b.skills,
-                        "perfectionBadge" to b.perfection,
-                        "shopName" to b.shopName,
-                        "shopAddress" to b.shopAddr,
-                        "homeVisitAvailable" to true,
-                        "latitude" to b.lat,
-                        "longitude" to b.lon,
-                        "createdAt" to (existingSnap.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()),
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-            }
-
-            batch.commit().await()
-            recordAudit("BOOTSTRAP_CATALOG", "Platform", "initial_seed", "Initialized catalog, partner barber shops, skills, and zero-customer-fee barber commission policy")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, "bootstrap")
-            throw e
         }
+        recordAudit("SET_BARBER_$newStatus", "BarberProfile", barberId, reason)
+    }
+
+    suspend fun adminUpsertService(
+        id: String?,
+        name: String,
+        category: String,
+        description: String,
+        priceRupees: Long,
+        durationMinutes: Long,
+        isPackage: Boolean,
+        isActive: Boolean
+    ): Result<Unit> = runCatching {
+        val docId = id?.takeIf { it.isNotBlank() } ?: "svc_${UUID.randomUUID().toString().take(8)}"
+        val ref = db.collection("services").document(docId)
+        val snap = ref.get().await()
+        val payload = mutableMapOf<String, Any>(
+            "name" to name.trim().take(100),
+            "category" to category,
+            "description" to description.trim().take(500),
+            "pricePaise" to (priceRupees * 100L).coerceAtLeast(0L),
+            "durationMinutes" to durationMinutes.coerceIn(5L, 480L),
+            "isActive" to isActive,
+            "isPackage" to isPackage,
+            "instructions" to "Keep a chair ready near good lighting and a power socket.",
+            "sortOrder" to 10L,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (!snap.exists()) {
+            payload["createdAt"] = FieldValue.serverTimestamp()
+            ref.set(payload).await()
+        } else {
+            payload["createdAt"] = snap.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()
+            ref.set(payload).await()
+        }
+        recordAudit("UPSERT_SERVICE", "Service", docId, "Updated catalog item $name")
+    }
+
+    suspend fun adminUpsertServiceArea(
+        id: String?,
+        name: String,
+        postalCodesCsv: String,
+        travelChargeRupees: Long,
+        maxDistanceKm: Long,
+        isActive: Boolean
+    ): Result<Unit> = runCatching {
+        val docId = id?.takeIf { it.isNotBlank() } ?: "zone_${UUID.randomUUID().toString().take(6)}"
+        val pins = postalCodesCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.take(30)
+        val ref = db.collection("serviceAreas").document(docId)
+        val snap = ref.get().await()
+        val payload = mutableMapOf<String, Any>(
+            "name" to name.trim().take(120),
+            "postalCodes" to pins,
+            "travelChargePaise" to (travelChargeRupees * 100L).coerceAtLeast(0L),
+            "maxDistanceKm" to maxDistanceKm.coerceIn(1L, 100L),
+            "isActive" to isActive,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (!snap.exists()) {
+            payload["createdAt"] = FieldValue.serverTimestamp()
+            ref.set(payload).await()
+        } else {
+            payload["createdAt"] = snap.getTimestamp("createdAt") ?: FieldValue.serverTimestamp()
+            ref.set(payload).await()
+        }
+        recordAudit("UPSERT_SERVICE_AREA", "ServiceArea", docId, "Updated zone $name")
+    }
+
+    suspend fun adminOverrideBooking(
+        booking: Booking,
+        newStatus: String,
+        newBarber: BarberProfile?,
+        markBarberCommissionSettled: Boolean,
+        reason: String
+    ): Result<Unit> = runCatching {
+        val updates = mutableMapOf<String, Any>(
+            "status" to newStatus,
+            "cancellationReason" to reason.trim().take(300),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (newBarber != null) {
+            updates["barberId"] = newBarber.barberId
+            updates["barberName"] = newBarber.name
+            updates["barberPhone"] = newBarber.phone
+        }
+        if (markBarberCommissionSettled) {
+            updates["barberCommissionStatus"] = "SETTLED"
+        }
+        db.collection("bookings").document(booking.id).update(updates).await()
+        if (newBarber != null) {
+            runCatching {
+                db.collection("bookings").document(booking.id)
+                    .collection("privateDetails").document("main")
+                    .update(mapOf("barberId" to newBarber.barberId, "updatedAt" to FieldValue.serverTimestamp()))
+                    .await()
+            }
+        }
+        recordAudit("BOOKING_OVERRIDE_$newStatus", "Booking", booking.id, reason)
+    }
+
+    suspend fun adminResolveTicket(ticketId: String, resolution: String): Result<Unit> = runCatching {
+        db.collection("supportTickets").document(ticketId).update(
+            mapOf(
+                "status" to "RESOLVED",
+                "adminResolution" to resolution.trim().take(1000),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        recordAudit("RESOLVE_TICKET", "SupportTicket", ticketId, resolution)
+    }
+
+    suspend fun adminSavePlatformConfig(
+        feeType: String,
+        barberCommissionPercent: Long,
+        barberFlatFeeRupees: Long,
+        cutoffHours: Long,
+        policyText: String
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        db.collection("platformConfig").document("global").set(
+            mapOf(
+                "bookingFeeType" to feeType,
+                "fixedBookingFeePaise" to 2900L,
+                "percentageBookingFeeBps" to 0L,
+                "barberCommissionBps" to (barberCommissionPercent * 100L).coerceIn(0L, 5000L),
+                "barberFlatFeePaise" to (barberFlatFeeRupees * 100L).coerceIn(0L, 500000L),
+                "freeCancellationCutoffHours" to cutoffHours.coerceIn(0L, 72L),
+                "slotHoldMinutes" to 10L,
+                "policyText" to policyText.trim().take(1000),
+                "maintenanceMode" to false,
+                "updatedBy" to uid,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        recordAudit("UPDATE_PLATFORM_CONFIG", "PlatformConfig", "global", "Updated commission & cancellation rules")
+    }
+
+    suspend fun adminSetUserStatus(
+        userId: String,
+        newStatus: String,
+        reason: String
+    ): Result<Unit> = runCatching {
+        require(newStatus in setOf("ACTIVE", "PENDING", "SUSPENDED", "REJECTED"))
+        db.collection("users").document(userId).update(
+            mapOf(
+                "status" to newStatus,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        recordAudit("SET_USER_$newStatus", "User", userId, reason.ifBlank { "Admin account status update" })
+    }
+
+    suspend fun adminVerifyUpfrontBookingFee(
+        booking: Booking,
+        paymentReference: String
+    ): Result<Unit> = runCatching {
+        val uid = currentUid() ?: error("Not signed in")
+        val cleanRef = paymentReference.trim().ifBlank { "ADM-VERIFIED-${booking.bookingNumber}" }.take(120)
+        val amount = booking.platformBookingFeePaise.coerceAtLeast(100L)
+        val batch = db.batch()
+        batch.set(
+            db.collection("verifiedPayments").document(booking.id),
+            mapOf(
+                "bookingId" to booking.id,
+                "customerId" to booking.customerId,
+                "amountPaise" to amount,
+                "provider" to "ADMIN_MANUAL",
+                "orderId" to "ORD-${booking.bookingNumber}".take(120),
+                "paymentId" to cleanRef,
+                "verifiedBy" to uid,
+                "verifiedAt" to FieldValue.serverTimestamp()
+            )
+        )
+        batch.update(
+            db.collection("bookings").document(booking.id),
+            mapOf(
+                "bookingFeeStatus" to "PAID_VERIFIED",
+                "bookingFeeTxRef" to cleanRef,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        )
+        batch.commit().await()
+        recordAudit("VERIFY_BOOKING_FEE", "Booking", booking.id, "Verified upfront booking fee ($cleanRef)")
     }
 }

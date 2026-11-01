@@ -2,6 +2,7 @@ package com.example.ui.customer
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -31,24 +32,30 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Face3
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,17 +73,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.BarberProfile
 import com.example.data.model.CatalogService
 import com.example.data.model.CurrencyUtils
 import com.example.data.model.CustomerAddress
 import com.example.data.model.PlatformConfig
 import com.example.data.model.ServiceArea
 import com.example.data.model.ServiceCategory
-import com.example.data.model.SlotLock
-import com.example.ui.components.BarberAvatarBadge
 import com.example.ui.glass.AmbientAtelierBackdrop
 import com.example.ui.glass.GlassMaterialStrength
 import com.example.ui.glass.LiquidGlassSurface
@@ -91,82 +96,39 @@ import com.example.util.DetectedDoorLocation
 import com.example.util.DoorCutPreferences
 import com.example.util.PendingDoorAddressDraft
 
-private fun defaultFallbackBarbers(): List<BarberProfile> = listOf(
-    BarberProfile(
-        id = "barber_arman_master",
-        barberId = "barber_arman_master",
-        name = "Arman Siddiqui",
-        experienceYears = 7L,
-        approvalStatus = "APPROVED",
-        isOnline = true,
-        ratingAvg = 4.9,
-        reviewCount = 48L,
-        workStartHour = 9L,
-        workEndHour = 20L,
-        breakStartHour = 13L,
-        breakEndHour = 14L
-    ),
-    BarberProfile(
-        id = "barber_vikram_stylist",
-        barberId = "barber_vikram_stylist",
-        name = "Vikram Rathore",
-        experienceYears = 8L,
-        approvalStatus = "APPROVED",
-        isOnline = true,
-        ratingAvg = 4.8,
-        reviewCount = 36L,
-        workStartHour = 10L,
-        workEndHour = 21L,
-        breakStartHour = 14L,
-        breakEndHour = 15L
-    ),
-    BarberProfile(
-        id = "barber_danish_pro",
-        barberId = "barber_danish_pro",
-        name = "Danish Khan",
-        experienceYears = 6L,
-        approvalStatus = "APPROVED",
-        isOnline = true,
-        ratingAvg = 4.9,
-        reviewCount = 29L,
-        workStartHour = 8L,
-        workEndHour = 19L,
-        breakStartHour = 13L,
-        breakEndHour = 14L
-    )
-)
-
 @Composable
 fun CustomerBookingFlowScreen(
     isAuthenticated: Boolean,
     customerName: String,
     customerPhone: String,
     services: List<CatalogService>,
-    approvedBarbers: List<BarberProfile>,
     savedAddresses: List<CustomerAddress>,
     serviceAreas: List<ServiceArea>,
-    slotLocks: List<SlotLock>,
     platformConfig: PlatformConfig,
     selectedServiceIds: Set<String>,
-    selectedBarberId: String?,
     selectedAddressId: String?,
     selectedDateKey: String,
     selectedStartHour: Long?,
+    bookingMode: String,
+    recipientGender: String,
+    recipientAge: Long,
+    preferLadyBarber: Boolean,
     detectedLocation: DetectedDoorLocation?,
     pendingDoorDraft: PendingDoorAddressDraft?,
     isFetchingLocation: Boolean,
     isBusy: Boolean,
     initialStep: Int = if (selectedServiceIds.isNotEmpty()) 2 else 1,
     onToggleService: (String) -> Unit,
-    onSelectBarber: (String?) -> Unit,
     onSelectDate: (String) -> Unit,
     onSelectHour: (Long?) -> Unit,
+    onSetBookingMode: (String) -> Unit,
+    onUpdateRecipientPreferences: (gender: String, age: Long, preferLadyBarber: Boolean) -> Unit,
     onSelectAddress: (String?) -> Unit,
     onSaveAddressForAuthenticated: (PendingDoorAddressDraft) -> Unit,
-    onSaveDraftForGuest: (PendingDoorAddressDraft) -> Unit,
     onRequestGps: () -> Unit,
-    onConfirmBooking: (BarberProfile, CustomerAddress, Long, String) -> Unit,
-    onExitFlow: () -> Unit
+    onConfirmOpenDispatchBooking: (CustomerAddress, Long, String, String) -> Unit,
+    onExitFlow: () -> Unit,
+    onLocationPinned: ((DetectedDoorLocation) -> Unit)? = null
 ) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { DoorCutPreferences.ensureLoaded(context) }
@@ -174,18 +136,22 @@ fun CustomerBookingFlowScreen(
 
     var currentStep by rememberSaveable { mutableIntStateOf(initialStep.coerceIn(1, 4)) }
     var optionalInstructions by rememberSaveable { mutableStateOf("") }
+    var contactPhone by rememberSaveable(customerPhone) { mutableStateOf(customerPhone) }
     var activeDetailService by remember { mutableStateOf<CatalogService?>(null) }
 
-    val availableBarbers = remember(approvedBarbers) {
-        approvedBarbers.filter { it.approvalStatus == "APPROVED" && it.isOnline }
-            .ifEmpty { defaultFallbackBarbers() }
-    }
-    val chosenBarber = remember(availableBarbers, selectedBarberId) {
-        availableBarbers.firstOrNull { it.barberId == selectedBarberId } ?: availableBarbers.first()
-    }
     val selectedServices = remember(services, selectedServiceIds) {
         services.filter { selectedServiceIds.contains(it.id) }
     }
+    val hasLadiesService = remember(selectedServices) {
+        selectedServices.any { it.category == "LADIES_STYLING" }
+    }
+
+    LaunchedEffect(hasLadiesService) {
+        if (hasLadiesService && recipientGender != "FEMALE") {
+            onUpdateRecipientPreferences("FEMALE", recipientAge, true)
+        }
+    }
+
     val serviceSubtotalPaise = remember(selectedServices) { selectedServices.sumOf { it.pricePaise } }
     val totalDurationMin = remember(selectedServices) { selectedServices.sumOf { it.durationMinutes } }
     val bookingFeePaise = remember(serviceSubtotalPaise, platformConfig) {
@@ -209,7 +175,6 @@ fun CustomerBookingFlowScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .testTag("customer_booking_flow_screen")
         ) {
-            // Step Progress Header
             BookingStepTopBar(
                 step = currentStep,
                 onBack = handleBack
@@ -233,74 +198,87 @@ fun CustomerBookingFlowScreen(
                 ) { step ->
                     when (step) {
                         1 -> ChooseServicesStep(
-                        services = services,
-                        selectedServiceIds = selectedServiceIds,
-                        favouriteIds = localPrefs.favouriteServiceIds,
-                        subtotalPaise = serviceSubtotalPaise,
-                        onToggleService = onToggleService,
-                        onToggleFavourite = { DoorCutPreferences.toggleFavouriteService(context, it) },
-                        onOpenDetails = { activeDetailService = it },
-                        onContinue = { if (selectedServices.isNotEmpty()) currentStep = 2 }
-                    )
-                    2 -> ChooseDateAndTimeStep(
-                        barbers = availableBarbers,
-                        chosenBarber = chosenBarber,
-                        selectedDateKey = selectedDateKey,
-                        selectedStartHour = selectedStartHour,
-                        totalDurationMinutes = totalDurationMin,
-                        slotLocks = slotLocks,
-                        locallyBlockedSlots = localPrefs.barberBlockedSlots,
-                        unavailableDates = localPrefs.barberUnavailableDates,
-                        onSelectBarber = { onSelectBarber(it.barberId) },
-                        onSelectDate = onSelectDate,
-                        onSelectHour = onSelectHour,
-                        onContinue = { if (selectedStartHour != null) currentStep = 3 }
-                    )
-                    3 -> ConfirmHomeAddressStep(
-                        isAuthenticated = isAuthenticated,
-                        savedAddresses = savedAddresses,
-                        selectedAddressId = selectedAddressId,
-                        detectedLocation = detectedLocation,
-                        pendingDoorDraft = pendingDoorDraft,
-                        isFetchingLocation = isFetchingLocation,
-                        optionalInstructions = optionalInstructions,
-                        onOptionalInstructionsChange = { optionalInstructions = it },
-                        onSelectSavedAddress = onSelectAddress,
-                        onRequestGps = onRequestGps,
-                        onSaveAndContinue = { draft ->
-                            if (isAuthenticated) {
+                            services = services,
+                            selectedServiceIds = selectedServiceIds,
+                            favouriteIds = localPrefs.favouriteServiceIds,
+                            subtotalPaise = serviceSubtotalPaise,
+                            onToggleService = onToggleService,
+                            onToggleFavourite = { DoorCutPreferences.toggleFavouriteService(context, it) },
+                            onOpenDetails = { activeDetailService = it },
+                            onContinue = { if (selectedServices.isNotEmpty()) currentStep = 2 }
+                        )
+                        2 -> ChoosePreferencesAndTimingStep(
+                            bookingMode = bookingMode,
+                            selectedDateKey = selectedDateKey,
+                            selectedStartHour = selectedStartHour,
+                            totalDurationMinutes = totalDurationMin,
+                            recipientGender = recipientGender,
+                            recipientAge = recipientAge,
+                            preferLadyBarber = preferLadyBarber,
+                            hasLadiesService = hasLadiesService,
+                            contactPhone = contactPhone,
+                            onContactPhoneChange = { contactPhone = it },
+                            onSetBookingMode = onSetBookingMode,
+                            onSelectDate = onSelectDate,
+                            onSelectHour = onSelectHour,
+                            onUpdateRecipientPreferences = onUpdateRecipientPreferences,
+                            onContinue = {
+                                if (bookingMode == "ASAP" || selectedStartHour != null) {
+                                    currentStep = 3
+                                }
+                            }
+                        )
+                        3 -> ConfirmHomeAddressStep(
+                            isAuthenticated = isAuthenticated,
+                            savedAddresses = savedAddresses,
+                            selectedAddressId = selectedAddressId,
+                            detectedLocation = detectedLocation,
+                            pendingDoorDraft = pendingDoorDraft,
+                            isFetchingLocation = isFetchingLocation,
+                            optionalInstructions = optionalInstructions,
+                            onOptionalInstructionsChange = { optionalInstructions = it },
+                            onSelectSavedAddress = onSelectAddress,
+                            onRequestGps = onRequestGps,
+                            onSaveAndContinue = { draft ->
                                 onSaveAddressForAuthenticated(draft)
-                            } else {
-                                onSaveDraftForGuest(draft)
+                                if (draft.accessInstructions.isNotBlank()) {
+                                    optionalInstructions = draft.accessInstructions
+                                }
+                                currentStep = 4
+                            },
+                            onContinueWithExistingAddress = { currentStep = 4 },
+                            onLocationPinned = onLocationPinned
+                        )
+                        else -> BookingPaymentStep(
+                            isAuthenticated = isAuthenticated,
+                            customerName = customerName,
+                            customerPhone = contactPhone.ifBlank { customerPhone },
+                            recipientGender = recipientGender,
+                            recipientAge = recipientAge,
+                            preferLadyBarber = preferLadyBarber,
+                            bookingMode = bookingMode,
+                            selectedServices = selectedServices,
+                            selectedDateKey = selectedDateKey,
+                            selectedStartHour = selectedStartHour ?: 10L,
+                            savedAddresses = savedAddresses,
+                            selectedAddressId = selectedAddressId,
+                            pendingDoorDraft = pendingDoorDraft,
+                            detectedLocation = detectedLocation,
+                            serviceAreas = serviceAreas,
+                            platformConfig = platformConfig,
+                            bookingFeePaise = bookingFeePaise,
+                            optionalInstructions = optionalInstructions,
+                            isBusy = isBusy,
+                            onEditStep = { target -> currentStep = target },
+                            onConfirmBooking = { resolvedAddr, travelPaise ->
+                                onConfirmOpenDispatchBooking(
+                                    resolvedAddr,
+                                    travelPaise,
+                                    optionalInstructions,
+                                    contactPhone.ifBlank { customerPhone }
+                                )
                             }
-                            if (draft.accessInstructions.isNotBlank()) {
-                                optionalInstructions = draft.accessInstructions
-                            }
-                            currentStep = 4
-                        },
-                        onContinueWithExistingAddress = { currentStep = 4 }
-                    )
-                    else -> BookingPaymentStep(
-                        isAuthenticated = isAuthenticated,
-                        customerName = customerName,
-                        customerPhone = customerPhone,
-                        selectedServices = selectedServices,
-                        chosenBarber = chosenBarber,
-                        selectedDateKey = selectedDateKey,
-                        selectedStartHour = selectedStartHour ?: 10L,
-                        savedAddresses = savedAddresses,
-                        selectedAddressId = selectedAddressId,
-                        pendingDoorDraft = pendingDoorDraft,
-                        serviceAreas = serviceAreas,
-                        platformConfig = platformConfig,
-                        bookingFeePaise = bookingFeePaise,
-                        optionalInstructions = optionalInstructions,
-                        isBusy = isBusy,
-                        onEditStep = { target -> currentStep = target },
-                        onConfirmBooking = { resolvedAddr, travelPaise ->
-                            onConfirmBooking(chosenBarber, resolvedAddr, travelPaise, optionalInstructions)
-                        }
-                    )
+                        )
                     }
                 }
             }
@@ -326,9 +304,9 @@ private fun BookingStepTopBar(
     val reducedMotion = LocalReducedMotion.current
     val titles = listOf(
         "1. Choose Services",
-        "2. Choose Date & Time",
-        "3. Confirm Home Address",
-        "4. Booking Payment"
+        "2. Stylist Preferences & Timing",
+        "3. Confirm Home GPS Door",
+        "4. Review & Dispatch Barber"
     )
     LiquidGlassSurface(
         strength = GlassMaterialStrength.ChromeBar,
@@ -359,7 +337,7 @@ private fun BookingStepTopBar(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Step $step of 4",
+                        text = "Step $step of 4 · Smart Auto-Dispatch",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -436,8 +414,8 @@ private fun ChooseServicesStep(
         ) {
             item {
                 Text(
-                    text = "Tap Add on the services you want at home. All service prices are paid directly to your barber after completion.",
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = "Tap Add Service at the bottom of any card. Nearby verified Barbers & Lady Hair Stylists are automatically matched to your order.",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -489,16 +467,19 @@ private fun ChooseServicesStep(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChooseDateAndTimeStep(
-    barbers: List<BarberProfile>,
-    chosenBarber: BarberProfile,
+private fun ChoosePreferencesAndTimingStep(
+    bookingMode: String,
     selectedDateKey: String,
     selectedStartHour: Long?,
     totalDurationMinutes: Long,
-    slotLocks: List<SlotLock>,
-    locallyBlockedSlots: Set<String>,
-    unavailableDates: Set<String>,
-    onSelectBarber: (BarberProfile) -> Unit,
+    recipientGender: String,
+    recipientAge: Long,
+    preferLadyBarber: Boolean,
+    hasLadiesService: Boolean,
+    contactPhone: String,
+    onContactPhoneChange: (String) -> Unit,
+    onSetBookingMode: (String) -> Unit,
+    onUpdateRecipientPreferences: (gender: String, age: Long, preferLadyBarber: Boolean) -> Unit,
     onSelectDate: (String) -> Unit,
     onSelectHour: (Long?) -> Unit,
     onContinue: () -> Unit
@@ -506,6 +487,7 @@ private fun ChooseDateAndTimeStep(
     val todayKey = remember { MarketplaceViewModel.defaultTodayDateKey() }
     val tomorrowKey = remember { MarketplaceViewModel.defaultTomorrowDateKey() }
     var showCalendarDialog by remember { mutableStateOf(false) }
+    var ageText by rememberSaveable(recipientAge) { mutableStateOf(recipientAge.toString()) }
 
     val dateOptions = remember {
         val fmtKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
@@ -517,17 +499,8 @@ private fun ChooseDateAndTimeStep(
         }
     }
 
-    val lockedHours = remember(slotLocks, chosenBarber.barberId, selectedDateKey) {
-        slotLocks
-            .filter {
-                it.barberId == chosenBarber.barberId &&
-                    it.dateKey == selectedDateKey &&
-                    (it.status == "HELD" || it.status == "CONFIRMED")
-            }
-            .map { it.hourSlot }
-            .toSet()
-    }
-    val dateUnavailable = unavailableDates.contains(selectedDateKey)
+    val isReadyToContinue = (bookingMode == "ASAP" || selectedStartHour != null) &&
+        contactPhone.filter { it.isDigit() }.length >= 10
 
     LazyColumn(
         modifier = Modifier
@@ -537,216 +510,355 @@ private fun ChooseDateAndTimeStep(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Estimated Duration Banner
+        // 1. Open Dispatch Explanation Banner (No Manual Barber Picker)
         item {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = SageVerified.copy(alpha = 0.12f)
+                ),
+                border = BorderStroke(1.dp, SageVerified.copy(alpha = 0.45f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Estimated service duration: ${totalDurationMinutes.coerceAtLeast(15L)} minutes",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-        }
-
-        // Date Selector: Today | Tomorrow | Choose date
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Select Date",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    DateQuickPill(
-                        label = "Today",
-                        selected = selectedDateKey == todayKey,
-                        onClick = { onSelectDate(todayKey) },
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .testTag("date_pill_today")
-                    )
-                    DateQuickPill(
-                        label = "Tomorrow",
-                        selected = selectedDateKey == tomorrowKey,
-                        onClick = { onSelectDate(tomorrowKey) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("date_pill_tomorrow")
-                    )
-                    OutlinedButton(
-                        onClick = { showCalendarDialog = true },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1.2f)
-                            .height(50.dp)
-                            .testTag("date_pill_choose")
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(EspressoHeaderBg),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Filled.Radar, contentDescription = null, tint = BrassGold)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (selectedDateKey != todayKey && selectedDateKey != tomorrowKey) {
-                                dateOptions.firstOrNull { it.first == selectedDateKey }?.second ?: selectedDateKey
-                            } else {
-                                "Choose date"
-                            },
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
+                            text = "Uber-Style Smart Stylist Appointment",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "No manual barber picking needed. Verified nearby stylists see your service, gender & timing requirements and accept instantly.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
         }
 
-        // Barber Picker
+        // 2. Recipient Gender, Age, Phone & Lady Hair Barber Preference Card
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Select Verified Barber",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(barbers, key = { it.barberId }) { barber ->
-                        val selected = barber.barberId == chosenBarber.barberId
-                        LiquidGlassSurface(
-                            strength = if (selected) GlassMaterialStrength.AccentEmerald else GlassMaterialStrength.AtelierCard,
-                            shape = RoundedCornerShape(18.dp),
-                            accentBorderColor = if (selected) SageVerified else null,
-                            shadowElevation = if (selected) 4.dp else 1.dp,
-                            onClick = { onSelectBarber(barber) },
-                            modifier = Modifier.width(214.dp)
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Client Details for Barber Match",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        text = "Who is this haircut / grooming session for?",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "MALE" to "Male",
+                            "FEMALE" to "Female / Lady",
+                            "CHILD" to "Child",
+                            "OTHER" to "Other"
+                        ).forEach { (code, label) ->
+                            FilterChip(
+                                selected = recipientGender == code,
+                                onClick = {
+                                    val defaultLadyPref = if (code == "FEMALE") true else false
+                                    onUpdateRecipientPreferences(code, recipientAge, defaultLadyPref)
+                                },
+                                label = { Text(label, fontWeight = FontWeight.SemiBold) },
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("recipient_gender_chip_$code")
+                            )
+                        }
+                    }
+
+                    // Conditional "Need a Lady Hair Barber?" Toggle when Female or Ladies Styling is chosen
+                    AnimatedVisibility(visible = recipientGender == "FEMALE" || hasLadiesService) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF8E24AA).copy(alpha = 0.10f),
+                            border = BorderStroke(1.5.dp, Color(0xFF8E24AA).copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("lady_barber_preference_card")
                         ) {
                             Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                BarberAvatarBadge(name = barber.name, isOnline = barber.isOnline, size = 44.dp)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = barber.name,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Face3,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6A1B9A),
+                                        modifier = Modifier.size(24.dp)
                                     )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Star,
-                                            contentDescription = null,
-                                            tint = BrassGold,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(3.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
                                         Text(
-                                            text = "${String.format("%.1f", barber.ratingAvg)} · ${barber.experienceYears}y exp",
+                                            text = "Need a Lady Hair Barber?",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Appoint a verified Female Hair Stylist for comfortable ladies' home haircut & styling.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Switch(
+                                    checked = preferLadyBarber,
+                                    onCheckedChange = { checked ->
+                                        onUpdateRecipientPreferences(recipientGender, recipientAge, checked)
+                                    },
+                                    modifier = Modifier.testTag("prefer_lady_barber_switch")
+                                )
                             }
                         }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = ageText,
+                            onValueChange = { raw ->
+                                val clean = raw.filter { it.isDigit() }.take(3)
+                                ageText = clean
+                                val parsed = clean.toLongOrNull()?.coerceIn(1L, 120L) ?: recipientAge
+                                onUpdateRecipientPreferences(recipientGender, parsed, preferLadyBarber)
+                            },
+                            label = { Text("Age *") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .width(110.dp)
+                                .testTag("recipient_age_input")
+                        )
+
+                        OutlinedTextField(
+                            value = contactPhone,
+                            onValueChange = { raw ->
+                                onContactPhoneChange(raw.filter { it.isDigit() || it == '+' }.take(14))
+                            },
+                            label = { Text("Mobile Number for Barber *") },
+                            leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+                            placeholder = { Text("Enter 10-digit mobile number") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("recipient_phone_input")
+                        )
                     }
                 }
             }
         }
 
-        // Time Slots Grid (Reservable vs Clearly Labeled Unavailable)
+        // 3. Dispatch Timing Mode: ASAP Express vs Scheduled Slot
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Available Time Slots",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                if (dateUnavailable) {
-                    Text(
-                        text = "${chosenBarber.name} has marked this date unavailable. Please pick another date or barber.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                } else {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        for (hour in chosenBarber.workStartHour until chosenBarber.workEndHour) {
-                            val isBreak = hour >= chosenBarber.breakStartHour && hour < chosenBarber.breakEndHour
-                            val isBooked = lockedHours.contains(hour) || locallyBlockedSlots.contains("${selectedDateKey}_$hour")
-                            val isReservable = !isBreak && !isBooked
-                            val isSelected = selectedStartHour == hour
-                            val slotBg by animateColorAsState(
-                                targetValue = when {
-                                    isSelected -> EspressoHeaderBg
-                                    isReservable -> MaterialTheme.colorScheme.surface
-                                    else -> MaterialTheme.colorScheme.surfaceContainerLow
-                                },
-                                animationSpec = tween(160),
-                                label = "slot_bg_$hour"
-                            )
+                        Text(
+                            text = "When Should Stylist Arrive?",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "~${totalDurationMinutes.coerceAtLeast(15L)} mins",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-                            Surface(
-                                onClick = { if (isReservable) onSelectHour(hour) },
-                                enabled = isReservable,
-                                shape = RoundedCornerShape(14.dp),
-                                color = slotBg,
-                                border = BorderStroke(
-                                    if (isSelected) 1.5.dp else 1.dp,
-                                    when {
-                                        isSelected -> BrassGold
-                                        isReservable -> MaterialTheme.colorScheme.outlineVariant
-                                        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                    }
-                                ),
-                                shadowElevation = if (isSelected) 4.dp else 0.dp,
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        DispatchModeCard(
+                            title = "ASAP Now",
+                            subtitle = "20–35 min arrival",
+                            icon = Icons.Filled.Bolt,
+                            selected = bookingMode == "ASAP",
+                            onClick = { onSetBookingMode("ASAP") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("booking_mode_asap")
+                        )
+                        DispatchModeCard(
+                            title = "Schedule Slot",
+                            subtitle = "Pick date & hour",
+                            icon = Icons.Filled.Schedule,
+                            selected = bookingMode == "SCHEDULED",
+                            onClick = { onSetBookingMode("SCHEDULED") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("booking_mode_scheduled")
+                        )
+                    }
+
+                    if (bookingMode == "ASAP") {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = BrassGold.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.55f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "ASAP Express Dispatch broadcasts your request immediately to online stylists within 5 km so the nearest available partner can head straight to your door.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    } else {
+                        // Date Selector: Today | Tomorrow | Choose date
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            DateQuickPill(
+                                label = "Today",
+                                selected = selectedDateKey == todayKey,
+                                onClick = { onSelectDate(todayKey) },
                                 modifier = Modifier
-                                    .tactilePressPhysics(enabled = isReservable, pressedScale = 0.94f, maxTiltDegrees = 0f, enableHaptics = true)
-                                    .testTag("slot_button_$hour")
+                                    .weight(1f)
+                                    .testTag("date_pill_today")
+                            )
+                            DateQuickPill(
+                                label = "Tomorrow",
+                                selected = selectedDateKey == tomorrowKey,
+                                onClick = { onSelectDate(tomorrowKey) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("date_pill_tomorrow")
+                            )
+                            OutlinedButton(
+                                onClick = { showCalendarDialog = true },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .height(50.dp)
+                                    .testTag("date_pill_choose")
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (selectedDateKey != todayKey && selectedDateKey != tomorrowKey) {
+                                        dateOptions.firstOrNull { it.first == selectedDateKey }?.second ?: selectedDateKey
+                                    } else {
+                                        "Choose date"
+                                    },
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Select Preferred Arrival Window",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            for (hour in 9L..20L) {
+                                val isSelected = selectedStartHour == hour
+                                val slotBg by animateColorAsState(
+                                    targetValue = if (isSelected) EspressoHeaderBg else MaterialTheme.colorScheme.surface,
+                                    animationSpec = tween(150),
+                                    label = "slot_bg_$hour"
+                                )
+                                Surface(
+                                    onClick = { onSelectHour(hour) },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = slotBg,
+                                    border = BorderStroke(
+                                        if (isSelected) 1.5.dp else 1.dp,
+                                        if (isSelected) BrassGold else MaterialTheme.colorScheme.outlineVariant
+                                    ),
+                                    shadowElevation = if (isSelected) 3.dp else 0.dp,
+                                    modifier = Modifier
+                                        .tactilePressPhysics(pressedScale = 0.94f, maxTiltDegrees = 0f, enableHaptics = true)
+                                        .testTag("slot_button_$hour")
                                 ) {
-                                    Text(
-                                        text = CurrencyUtils.formatHourSlot(hour),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = when {
-                                            isSelected -> Color.White
-                                            isReservable -> MaterialTheme.colorScheme.onSurface
-                                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                        }
-                                    )
-                                    Text(
-                                        text = when {
-                                            isSelected -> "Selected"
-                                            isBreak -> "Unavailable · Break"
-                                            isBooked -> "Unavailable"
-                                            else -> "Available"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = when {
-                                            isSelected -> Color(0xFFFFDF9E)
-                                            isReservable -> SageVerified
-                                            else -> MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
-                                        }
-                                    )
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = CurrencyUtils.formatHourSlot(hour),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (isSelected) "Selected" else "Open Pool",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isSelected) Color(0xFFFFDF9E) else SageVerified
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -758,7 +870,7 @@ private fun ChooseDateAndTimeStep(
         item {
             Button(
                 onClick = onContinue,
-                enabled = selectedStartHour != null,
+                enabled = isReadyToContinue,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = EspressoHeaderBg,
@@ -767,16 +879,17 @@ private fun ChooseDateAndTimeStep(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
-                    .tactilePressPhysics(enabled = selectedStartHour != null, enableHaptics = true)
+                    .tactilePressPhysics(enabled = isReadyToContinue, enableHaptics = true)
                     .testTag("datetime_continue_button")
             ) {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (selectedStartHour != null) {
-                        "Continue with ${CurrencyUtils.formatHourSlot(selectedStartHour)}"
-                    } else {
-                        "Select a Time Slot to Continue"
+                    text = when {
+                        contactPhone.filter { it.isDigit() }.length < 10 -> "Enter 10-Digit Mobile Number to Continue"
+                        bookingMode == "ASAP" -> "Continue with ASAP Express Dispatch"
+                        selectedStartHour != null -> "Continue with ${CurrencyUtils.formatHourSlot(selectedStartHour)}"
+                        else -> "Select Arrival Time to Continue"
                     },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -821,6 +934,55 @@ private fun ChooseDateAndTimeStep(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun DispatchModeCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) EspressoHeaderBg else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(
+            if (selected) 2.dp else 1.dp,
+            if (selected) BrassGold else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = modifier
+            .height(68.dp)
+            .tactilePressPhysics(pressedScale = 0.96f, maxTiltDegrees = 0f, enableHaptics = true)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) BrassGold else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selected) Color(0xFFFFDF9E) else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 

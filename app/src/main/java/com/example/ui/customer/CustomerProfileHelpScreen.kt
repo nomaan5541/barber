@@ -3,7 +3,6 @@ package com.example.ui.customer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,28 +21,29 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,8 +60,17 @@ import com.example.data.model.PlatformConfig
 import com.example.data.model.SupportTicket
 import com.example.data.model.UserAccount
 import com.example.ui.components.BarberAvatarBadge
+import com.example.ui.components.LegalPoliciesSheet
+import com.example.ui.components.LegalPolicyTab
 import com.example.ui.components.SectionHeader
+import com.example.ui.glass.GlassMaterialStrength
+import com.example.ui.glass.LiquidGlassPill
+import com.example.ui.glass.LiquidGlassSurface
+import com.example.ui.motion.staggeredSpringEntrance
+import com.example.ui.motion.tactilePressPhysics
+import com.example.ui.theme.BrassGold
 import com.example.ui.theme.EspressoHeaderBg
+import com.example.ui.theme.SageVerified
 import com.example.util.DoorCutPreferences
 import com.example.util.PhonePermissionsHelper
 
@@ -77,7 +86,6 @@ fun CustomerProfileHelpScreen(
     onUpdateProfile: (String, String) -> Unit,
     onManageAddresses: () -> Unit,
     onCreateSupportTicket: (String, String) -> Unit,
-    onSwitchToBarberMode: () -> Unit,
     onSwitchToAdminMode: () -> Unit,
     onSignOut: () -> Unit
 ) {
@@ -90,7 +98,8 @@ fun CustomerProfileHelpScreen(
     var showSupportDialog by remember { mutableStateOf(false) }
     var ticketSubject by remember { mutableStateOf("") }
     var ticketBody by remember { mutableStateOf("") }
-    var activePolicyDialog by remember { mutableStateOf<String?>(null) }
+    var showLegalPolicies by remember { mutableStateOf(false) }
+    var legalInitialTab by remember { mutableIntStateOf(0) }
 
     var permissionSnap by remember { mutableStateOf(PhonePermissionsHelper.inspectPermissions(context)) }
     val permLauncher = rememberLauncherForActivityResult(
@@ -102,7 +111,6 @@ fun CustomerProfileHelpScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .testTag("customer_profile_help_screen"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -110,22 +118,26 @@ fun CustomerProfileHelpScreen(
     ) {
         item {
             SectionHeader(
-                eyebrow = "ACCOUNT & PREFERENCES",
-                title = "Profile & Help",
-                subtitle = "Manage your saved addresses, language, notifications, and support in one place.",
-                modifier = Modifier.widthIn(max = 600.dp)
+                eyebrow = "VERIFIED CUSTOMER ACCOUNT",
+                title = "Profile, Privacy & Help",
+                subtitle = "Manage your verified profile, saved home doors, notifications, and legal policies.",
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
-        // 1. Account Card (Name & Phone or Sign In)
+        // 1. Verified Customer Account Card (Name, DOB, Age, Gender, Phone)
         item {
             Card(
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier
                     .widthIn(max = 600.dp)
                     .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 1)
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
@@ -133,14 +145,9 @@ fun CustomerProfileHelpScreen(
                 ) {
                     if (!isAuthenticated || userAccount == null) {
                         Text(
-                            text = "Sign in to sync your bookings & home addresses",
+                            text = "Sign in with Google",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Use Google Sign-In to manage appointments, saved addresses, and support.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Button(
                             onClick = onSignInClick,
@@ -158,21 +165,52 @@ fun CustomerProfileHelpScreen(
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            BarberAvatarBadge(name = userAccount.name, isOnline = true, size = 50.dp)
+                            BarberAvatarBadge(name = userAccount.name, isOnline = true, size = 52.dp)
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = userAccount.name.ifBlank { "DoorCut Customer" },
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.ExtraBold
                                 )
                                 Text(
                                     text = userAccount.email,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Surface(
+                                    color = SageVerified.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.VerifiedUser,
+                                            contentDescription = null,
+                                            tint = SageVerified,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        val demoLine = buildList {
+                                            add("Customer Account")
+                                            if (userAccount.gender.isNotBlank()) add(userAccount.gender)
+                                            if (userAccount.age > 0L) add("${userAccount.age} yrs")
+                                            if (userAccount.dob.isNotBlank()) add("DOB: ${userAccount.dob}")
+                                        }.joinToString(" · ")
+                                        Text(
+                                            text = demoLine,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = SageVerified
+                                        )
+                                    }
+                                }
                             }
                         }
+
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { nameInput = it },
@@ -186,23 +224,29 @@ fun CustomerProfileHelpScreen(
                         OutlinedTextField(
                             value = phoneInput,
                             onValueChange = { phoneInput = it },
-                            label = { Text("Phone Number") },
+                            label = { Text("Verified Mobile Number") },
                             singleLine = true,
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("profile_phone_input")
                         )
+                        val canUpdate = !isBusy && nameInput.isNotBlank()
                         Button(
                             onClick = { onUpdateProfile(nameInput.trim(), phoneInput.trim()) },
-                            enabled = !isBusy && nameInput.isNotBlank(),
+                            enabled = canUpdate,
                             shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EspressoHeaderBg,
+                                contentColor = Color(0xFFFFDF9E)
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
+                                .tactilePressPhysics(enabled = canUpdate, enableHaptics = true)
                                 .testTag("save_profile_button")
                         ) {
-                            Text("Save Name & Phone", fontWeight = FontWeight.Bold)
+                            Text("Save Profile Changes", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -211,13 +255,15 @@ fun CustomerProfileHelpScreen(
 
         // 2. Saved Home Addresses
         item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            LiquidGlassSurface(
+                strength = if (savedAddresses.isNotEmpty()) GlassMaterialStrength.AccentEmerald else GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(22.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = true,
                 modifier = Modifier
                     .widthIn(max = 600.dp)
                     .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 2)
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -236,7 +282,7 @@ fun CustomerProfileHelpScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (savedAddresses.isEmpty()) "Set flat/house number & landmark"
+                            text = if (savedAddresses.isEmpty()) "Set flat/house number & GPS pin"
                             else "${savedAddresses.size} saved (${savedAddresses.first().displayLabel()}: ${savedAddresses.first().flatHouse})",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -247,9 +293,10 @@ fun CustomerProfileHelpScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .height(48.dp)
+                            .tactilePressPhysics(enableHaptics = true)
                             .testTag("manage_saved_addresses_button")
                     ) {
-                        Text("Manage")
+                        Text("Manage", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -257,13 +304,15 @@ fun CustomerProfileHelpScreen(
 
         // 3. Language & Notifications
         item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(22.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = false,
                 modifier = Modifier
                     .widthIn(max = 600.dp)
                     .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 3)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -280,13 +329,11 @@ fun CustomerProfileHelpScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("English", "Hindi", "Telugu").forEach { lang ->
-                            FilterChip(
+                            LiquidGlassPill(
+                                text = lang,
                                 selected = localPrefs.selectedLanguage == lang,
                                 onClick = { DoorCutPreferences.setLanguage(context, lang) },
-                                label = { Text(lang) },
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .testTag("lang_chip_${lang.lowercase()}")
+                                modifier = Modifier.testTag("lang_chip_${lang.lowercase()}")
                             )
                         }
                     }
@@ -303,12 +350,12 @@ fun CustomerProfileHelpScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Booking & Arrival Notifications",
+                                    text = "Live Dispatch & Arrival Alerts",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Alerts when barber is assigned, on the way, and outside",
+                                    text = "Instant alerts when stylist accepts, departs, and arrives outside",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -337,78 +384,69 @@ fun CustomerProfileHelpScreen(
             }
         }
 
-        // 5. Switch to Barber Mode / Admin Dashboard
-        item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = EspressoHeaderBg),
-                modifier = Modifier
-                    .widthIn(max = 600.dp)
-                    .fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+        // 5. Admin Governance Access (shown ONLY for verified ADMIN accounts)
+        if (userAccount?.role == "ADMIN") {
+            item {
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.FloatingPill,
+                    shape = RoundedCornerShape(22.dp),
+                    accentBorderColor = BrassGold.copy(alpha = 0.5f),
+                    shadowElevation = 4.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier
+                        .widthIn(max = 600.dp)
+                        .fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.ContentCut, contentDescription = null, tint = Color(0xFFFFDF9E))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Are you a Barber?",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                    Text(
-                        text = "Open Barber Mode to accept home appointments, navigate to customers, and track direct payments.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFD9CBB8)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.padding(18.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Admin Marketplace Console",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Manage partner approvals, catalog pricing, and support disputes.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFD9CBB8)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Button(
-                            onClick = onSwitchToBarberMode,
+                            onClick = onSwitchToAdminMode,
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFFDF9E),
+                                containerColor = BrassGold,
                                 contentColor = EspressoHeaderBg
                             ),
                             modifier = Modifier
-                                .weight(1f)
                                 .height(48.dp)
-                                .testTag("switch_to_barber_mode_button")
+                                .testTag("switch_to_admin_mode_button")
                         ) {
-                            Text("Open Barber Mode", fontWeight = FontWeight.Bold)
-                        }
-                        if (userAccount?.role == "ADMIN") {
-                            OutlinedButton(
-                                onClick = onSwitchToAdminMode,
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .testTag("switch_to_admin_mode_button")
-                            ) {
-                                Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Admin")
-                            }
+                            Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Admin", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
 
-        // 6. Help, Policies & Logout
+        // 6. Help, Privacy Policies, Home Safety Charter & Logout
         item {
             Card(
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier
                     .widthIn(max = 600.dp)
                     .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 4)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -420,6 +458,7 @@ fun CustomerProfileHelpScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
+                            .tactilePressPhysics()
                             .testTag("help_and_support_button")
                     ) {
                         Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -427,28 +466,36 @@ fun CustomerProfileHelpScreen(
                         Text("Help & Support (${tickets.count { it.status != "RESOLVED" }} open)")
                     }
                     OutlinedButton(
-                        onClick = { activePolicyDialog = "CANCELLATION" },
+                        onClick = {
+                            legalInitialTab = 0
+                            showLegalPolicies = true
+                        },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
-                            .testTag("cancellation_policy_button")
-                    ) {
-                        Icon(Icons.Filled.Policy, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Cancellation & Refund Policies")
-                    }
-                    OutlinedButton(
-                        onClick = { activePolicyDialog = "PRIVACY" },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
+                            .tactilePressPhysics()
                             .testTag("privacy_policy_button")
                     ) {
                         Icon(Icons.Filled.Policy, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Privacy Policy")
+                        Text("Privacy Policy, Gender Safety & GPS Charter")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            legalInitialTab = 3
+                            showLegalPolicies = true
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .tactilePressPhysics()
+                            .testTag("cancellation_policy_button")
+                    ) {
+                        Icon(Icons.Filled.Policy, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Payment, Cancellation & Refund Policies")
                     }
                     if (isAuthenticated) {
                         Button(
@@ -458,11 +505,12 @@ fun CustomerProfileHelpScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
+                                .tactilePressPhysics(enableHaptics = true)
                                 .testTag("logout_button")
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Log Out", fontWeight = FontWeight.Bold)
+                            Text("Sign Out of Google Account", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -515,26 +563,10 @@ fun CustomerProfileHelpScreen(
         )
     }
 
-    if (activePolicyDialog != null) {
-        val isCancel = activePolicyDialog == "CANCELLATION"
-        AlertDialog(
-            onDismissRequest = { activePolicyDialog = null },
-            title = { Text(if (isCancel) "Cancellation & Refund Policy" else "Privacy & Address Safety") },
-            text = {
-                Text(
-                    text = if (isCancel) {
-                        platformConfig.policyText
-                    } else {
-                        "Your full flat/house number and phone contact are stored in a protected collection and shared only with your assigned barber once your booking is active."
-                    },
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            },
-            confirmButton = {
-                Button(onClick = { activePolicyDialog = null }, modifier = Modifier.height(48.dp)) {
-                    Text("Got It")
-                }
-            }
+    if (showLegalPolicies) {
+        LegalPoliciesSheet(
+            initialTab = LegalPolicyTab.entries.getOrElse(legalInitialTab) { LegalPolicyTab.PRIVACY },
+            onDismiss = { showLegalPolicies = false }
         )
     }
 }

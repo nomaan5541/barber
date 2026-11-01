@@ -374,6 +374,93 @@ fun LiveGlassPulseDot(
 }
 
 /**
+ * Tactile Liquid Glass capsule pill for category filters, property types, languages,
+ * schedule hours, and payment methods. Features spring color transitions, Fresnel rim
+ * illumination, passive press compression, haptic tick, and accessible 48.dp touch height.
+ */
+@Composable
+fun LiquidGlassPill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    selectedContainerColor: Color = EspressoHeaderBg,
+    selectedContentColor: Color = Color(0xFFFFDF9E)
+) {
+    val palette = LocalLiquidGlassPalette.current
+    val haptic = LocalHapticFeedback.current
+
+    val containerCol by animateColorAsState(
+        targetValue = if (selected) selectedContainerColor else palette.cardBase,
+        animationSpec = tween(170),
+        label = "liquid_pill_bg"
+    )
+    val textCol by animateColorAsState(
+        targetValue = if (selected) selectedContentColor else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(170),
+        label = "liquid_pill_fg"
+    )
+    val borderBrush = remember(selected, palette.isDark) {
+        if (selected) {
+            Brush.linearGradient(
+                listOf(BrassGoldLight.copy(alpha = 0.72f), BrassGold.copy(alpha = 0.32f))
+            )
+        } else {
+            Brush.linearGradient(
+                listOf(palette.rimLightTop, palette.rimLightBottom)
+            )
+        }
+    }
+
+    Surface(
+        onClick = {
+            runCatching { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+            onClick()
+        },
+        shape = RoundedCornerShape(50),
+        color = containerCol,
+        border = BorderStroke(1.dp, borderBrush),
+        shadowElevation = if (selected) 3.dp else 1.dp,
+        modifier = modifier
+            .height(48.dp)
+            .semantics { this.selected = selected }
+            .tactilePressPhysics(
+                enabled = true,
+                pressedScale = 0.95f,
+                maxTiltDegrees = 1.2f,
+                specularColor = BrassGoldLight,
+                specularAlpha = 0.14f,
+                enableHaptics = false
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = if (selected) BrassGold else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = textCol,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
  * Living Liquid Glass Bottom Navigation Dock with a physical spring-sliding optical capsule
  * that glides smoothly between tabs, icon scale micro-bounce, haptic ticks, and full safe-area
  * `WindowInsets.navigationBars` support. Preserves every `tab.testTag` and 48dp+ touch target.

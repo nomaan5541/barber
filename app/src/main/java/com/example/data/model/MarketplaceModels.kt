@@ -2,43 +2,45 @@ package com.example.data.model
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
-import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
+import java.text.NumberFormat
 import java.util.Locale
 
-enum class UserRole {
-    CUSTOMER, BARBER, ADMIN
-}
-
-enum class AccountStatus {
-    ACTIVE, PENDING, SUSPENDED, REJECTED
-}
-
 enum class ServiceCategory(val displayTitle: String) {
-    HAIRCUTS("Haircuts"),
+    HAIRCUTS("Men's Haircuts"),
+    LADIES_STYLING("Ladies Styling"),
     BEARD_MOUSTACHE("Beard & Shave"),
-    HAIR_CARE("Hair Care"),
-    ADD_ONS("Facials"),
-    PACKAGES("Combos")
+    HAIR_CARE("Spa & Hair Care"),
+    ADD_ONS("Add-Ons"),
+    PACKAGES("Value Combos")
 }
 
-enum class BookingStatus(val label: String) {
-    DRAFT("Draft"),
-    SLOT_HELD("Slot Held"),
-    PAYMENT_PENDING("Payment Pending"),
-    AWAITING_BARBER("Waiting for barber confirmation"),
-    CONFIRMED("Barber assigned and booking confirmed"),
-    ON_THE_WAY("Barber is on the way"),
-    ARRIVED("Barber has arrived"),
-    IN_PROGRESS("Service in progress"),
-    COMPLETED("Service completed"),
-    CANCELLED("Cancelled"),
-    EXPIRED("Expired"),
-    NO_SHOW("No-Show"),
-    DISPUTED("Disputed")
+object CurrencyUtils {
+    private val inrFormat: NumberFormat by lazy {
+        NumberFormat.getCurrencyInstance(Locale("en", "IN")).apply {
+            maximumFractionDigits = 0
+            minimumFractionDigits = 0
+        }
+    }
+
+    fun formatRupees(paise: Long): String {
+        val rupees = paise / 100.0
+        return inrFormat.format(rupees)
+    }
+
+    fun formatHourSlot(hour: Long): String {
+        val h = hour.toInt().coerceIn(0, 23)
+        return when {
+            h == 0 -> "12:00 AM"
+            h < 12 -> "$h:00 AM"
+            h == 12 -> "12:00 PM"
+            else -> "${h - 12}:00 PM"
+        }
+    }
 }
 
-@IgnoreExtraProperties
 data class UserAccount(
     @DocumentId val id: String = "",
     val userId: String = "",
@@ -47,44 +49,29 @@ data class UserAccount(
     val phone: String = "",
     val role: String = "CUSTOMER",
     val status: String = "ACTIVE",
+    val dob: String = "",
+    val age: Long = 0L,
+    val gender: String = "",
+    val onboardingCompleted: Boolean = false,
+    val privacyAccepted: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
-data class CustomerAddress(
-    @DocumentId val id: String = "",
-    val customerId: String = "",
-    val label: String = "HOME",
-    val flatHouse: String = "",
-    val streetArea: String = "",
-    val landmark: String = "",
-    val postalCode: String = "",
-    val serviceAreaId: String = "",
-    val serviceAreaName: String = "",
-    val accessInstructions: String = "",
-    val isDefault: Boolean = false,
-    val latitude: Double = 0.0,
-    val longitude: Double = 0.0,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null
-) {
-    fun displayLabel(): String = when (label.uppercase(Locale.US)) {
-        "HOME" -> "Home"
-        "OFFICE" -> "Work"
-        else -> "Other"
-    }
-}
-
-@IgnoreExtraProperties
 data class BarberProfile(
     @DocumentId val id: String = "",
     val barberId: String = "",
     val name: String = "",
+    val phone: String = "",
+    val gender: String = "MALE",
+    val servesLadies: Boolean = false,
+    val servesMen: Boolean = true,
     val bio: String = "",
-    val experienceYears: Long = 0L,
-    val approvalStatus: String = "PENDING",
-    val isOnline: Boolean = true,
+    val experienceYears: Long = 3L,
+    val approvalStatus: String = "APPROVED",
+    @get:PropertyName("isOnline")
+    @set:PropertyName("isOnline")
+    var isOnline: Boolean = true,
     val ratingAvg: Double = 5.0,
     val reviewCount: Long = 0L,
     val serviceIds: List<String> = emptyList(),
@@ -108,82 +95,33 @@ data class BarberProfile(
 ) {
     fun effectiveSkills(): List<String> {
         if (skills.isNotEmpty()) return skills
-        return when (barberId) {
-            "barber_arman_master" -> listOf("Skin Fade", "Beard Trim", "Textured Crop", "Sharp Line-Up")
-            "barber_vikram_stylist" -> listOf("Scissor Haircut", "Detan Facial", "Hot Towel Shave", "Blow-Dry")
-            "barber_danish_pro" -> listOf("Traditional Haircut", "Kids Cut", "Senior Care", "Head Massage")
-            "barber_kabir_atelier" -> listOf("Drop Fade", "Moustache Trim", "Charcoal Cleanup", "Grooming Combo")
-            else -> listOf("Haircut", "Beard Trim", "Sanitized Home Kit")
+        return when {
+            servesLadies && servesMen -> listOf("Unisex Home Stylist", "Precision Haircut", "Hygienic Kit")
+            servesLadies -> listOf("Lady Hair Stylist", "Layered Cut & Blowout", "Hygienic Kit")
+            else -> listOf("Precision Haircut", "Razor Beard Line-Up", "Hygienic Kit")
         }
     }
 
     fun effectivePerfectionBadge(): String {
         if (perfectionBadge.isNotBlank()) return perfectionBadge
-        return when (barberId) {
-            "barber_arman_master" -> "Top Rated · Fade & Beard"
-            "barber_vikram_stylist" -> "Senior Stylist · 8 Yrs"
-            "barber_danish_pro" -> "Family & Traditional Pro"
-            "barber_kabir_atelier" -> "Modern Cuts & Shaves"
-            else -> "Verified Home Barber"
+        return if (servesLadies && gender == "FEMALE") {
+            "Verified Lady Hair Stylist"
+        } else {
+            "Verified DoorCut Partner"
         }
     }
 
     fun effectiveShopName(): String {
         if (shopName.isNotBlank()) return shopName
-        return when (barberId) {
-            "barber_arman_master" -> "Royal Blade Grooming Studio"
-            "barber_vikram_stylist" -> "Crown & Clipper Men's Studio"
-            "barber_danish_pro" -> "Heritage Scissor & Shave Lounge"
-            "barber_kabir_atelier" -> "Urban Fade & Beard House"
-            else -> "${name.substringBefore(" ")}'s Barber Studio"
-        }
+        return if (name.isNotBlank()) "$name Home Studio" else "DoorCut Partner Studio"
     }
 
-    fun effectiveShopAddress(customerLocalityHint: String = ""): String {
+    fun effectiveShopAddress(fallbackZoneName: String = "Local Dispatch Area"): String {
         if (shopAddress.isNotBlank()) return shopAddress
-        val areaSuffix = if (customerLocalityHint.isNotBlank()) customerLocalityHint else "Hyderabad Central"
-        return when (barberId) {
-            "barber_arman_master" -> "Road No. 12, Banjara Hills, $areaSuffix"
-            "barber_vikram_stylist" -> "Jubilee Hills Checkpost, $areaSuffix"
-            "barber_danish_pro" -> "Madhapur Main Road, $areaSuffix"
-            "barber_kabir_atelier" -> "Gachibowli Boulevard, $areaSuffix"
-            else -> "Local Service Area, $areaSuffix"
-        }
-    }
-
-    fun effectiveLatitude(): Double {
-        if (latitude != 0.0) return latitude
-        return when (barberId) {
-            "barber_arman_master" -> 12.9784
-            "barber_vikram_stylist" -> 12.9352
-            "barber_danish_pro" -> 12.9719
-            "barber_kabir_atelier" -> 12.9698
-            else -> 12.9750
-        }
-    }
-
-    fun effectiveLongitude(): Double {
-        if (longitude != 0.0) return longitude
-        return when (barberId) {
-            "barber_arman_master" -> 77.6408
-            "barber_vikram_stylist" -> 77.6245
-            "barber_danish_pro" -> 77.6412
-            "barber_kabir_atelier" -> 77.7499
-            else -> 77.6380
-        }
-    }
-
-    fun supportsRequestedServices(requestedIds: List<String>): Boolean {
-        if (requestedIds.isEmpty()) return true
-        if (serviceIds.isEmpty() || serviceIds.size >= 10) return true
-        if (barberId in setOf("barber_arman_master", "barber_vikram_stylist", "barber_danish_pro", "barber_kabir_atelier")) {
-            return true
-        }
-        return serviceIds.containsAll(requestedIds)
+        return fallbackZoneName
     }
 }
 
-@IgnoreExtraProperties
 data class CatalogService(
     @DocumentId val id: String = "",
     val name: String = "",
@@ -191,27 +129,66 @@ data class CatalogService(
     val description: String = "",
     val pricePaise: Long = 0L,
     val durationMinutes: Long = 30L,
-    val isActive: Boolean = true,
-    val isPackage: Boolean = false,
+    @get:PropertyName("isActive")
+    @set:PropertyName("isActive")
+    var isActive: Boolean = true,
+    @get:PropertyName("isPackage")
+    @set:PropertyName("isPackage")
+    var isPackage: Boolean = false,
     val instructions: String = "",
     val sortOrder: Long = 1L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
 data class ServiceArea(
     @DocumentId val id: String = "",
     val name: String = "",
     val postalCodes: List<String> = emptyList(),
     val travelChargePaise: Long = 0L,
-    val maxDistanceKm: Long = 10L,
-    val isActive: Boolean = true,
+    val maxDistanceKm: Long = 12L,
+    @get:PropertyName("isActive")
+    @set:PropertyName("isActive")
+    var isActive: Boolean = true,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
+data class CustomerAddress(
+    @DocumentId val id: String = "",
+    val customerId: String = "",
+    val label: String = "HOME",
+    val flatHouse: String = "",
+    val streetArea: String = "",
+    val landmark: String = "",
+    val postalCode: String = "",
+    val serviceAreaId: String = "",
+    val serviceAreaName: String = "",
+    val accessInstructions: String = "",
+    @get:PropertyName("isDefault")
+    @set:PropertyName("isDefault")
+    var isDefault: Boolean = false,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+) {
+    fun fullSummary(): String {
+        val parts = listOf(flatHouse, streetArea, landmark, postalCode).filter { it.isNotBlank() }
+        return parts.joinToString(", ")
+    }
+
+    fun displayLabel(): String {
+        return when (label.uppercase(Locale.US)) {
+            "HOME" -> "Home"
+            "OFFICE", "WORK" -> "Work"
+            else -> "Other"
+        }
+    }
+
+    fun hasValidCoordinates(): Boolean = latitude != 0.0 || longitude != 0.0
+}
+
 data class SlotLock(
     @DocumentId val id: String = "",
     val barberId: String = "",
@@ -219,19 +196,28 @@ data class SlotLock(
     val hourSlot: Long = 10L,
     val bookingId: String = "",
     val customerId: String = "",
-    val status: String = "HELD",
+    val status: String = "CONFIRMED",
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
 data class Booking(
     @DocumentId val id: String = "",
     val bookingNumber: String = "",
     val customerId: String = "",
     val customerName: String = "",
-    val barberId: String = "",
-    val barberName: String = "",
+    val customerPhone: String = "",
+    val customerGender: String = "MALE",
+    val customerAge: Long = 0L,
+    val preferLadyBarber: Boolean = false,
+    val bookingMode: String = "ASAP",
+    val customerLat: Double = 0.0,
+    val customerLon: Double = 0.0,
+    val barberId: String = "UNASSIGNED",
+    val barberName: String = "Assigning Verified Barber",
+    val barberPhone: String = "",
+    val barberLat: Double = 0.0,
+    val barberLon: Double = 0.0,
     val status: String = "AWAITING_BARBER",
     val dateKey: String = "",
     val startHour: Long = 10L,
@@ -245,7 +231,7 @@ data class Booking(
     val barberServicePayablePaise: Long = 0L,
     val platformBookingFeePaise: Long = 0L,
     val totalCustomerCostPaise: Long = 0L,
-    val bookingFeeStatus: String = "PAID_VERIFIED",
+    val bookingFeeStatus: String = "UNPAID",
     val bookingFeeTxRef: String = "",
     val barberCommissionPaise: Long = 0L,
     val barberNetEarningsPaise: Long = 0L,
@@ -254,6 +240,8 @@ data class Booking(
     val directPaymentMethod: String = "NONE",
     val directPaymentDeclaredPaise: Long = 0L,
     val directPaymentRef: String = "",
+    val directPaymentRecordedBy: String = "",
+    val directPaymentRecordedAt: Timestamp? = null,
     val pendingAddOnServiceId: String = "",
     val pendingAddOnName: String = "",
     val pendingAddOnPricePaise: Long = 0L,
@@ -266,6 +254,42 @@ data class Booking(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
+    @get:Exclude
+    val isOpenDispatch: Boolean
+        get() = barberId == "UNASSIGNED" || barberId.isBlank()
+
+    @get:Exclude
+    val areaSummary: String
+        get() = areaName.ifBlank { "Home Doorstep" }
+
+    fun isActiveVisit(): Boolean {
+        return status in setOf("AWAITING_BARBER", "CONFIRMED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS")
+    }
+
+    fun isUpcoming(): Boolean = isActiveVisit()
+
+    fun isCompletedTab(): Boolean {
+        return status in setOf("COMPLETED", "DISPUTED")
+    }
+
+    fun isCancelledTab(): Boolean {
+        return status in setOf("CANCELLED", "DECLINED") || status.startsWith("CANCELLED")
+    }
+
+    fun friendlyStatusText(): String {
+        return when (status) {
+            "AWAITING_BARBER" -> if (preferLadyBarber) "Finding Lady Stylist" else "Finding Nearby Barber"
+            "CONFIRMED" -> "Barber Appointed"
+            "ON_THE_WAY" -> "Barber On The Way"
+            "ARRIVED" -> "Arrived at Doorstep"
+            "IN_PROGRESS" -> "Service In Progress"
+            "COMPLETED" -> "Completed"
+            "DISPUTED" -> "Payment Disputed"
+            "CANCELLED", "DECLINED" -> "Cancelled"
+            else -> status.replace('_', ' ')
+        }
+    }
+
     fun effectiveBarberCommissionPaise(defaultBps: Long = 1500L): Long {
         if (barberCommissionPaise > 0L) return barberCommissionPaise
         return (barberServicePayablePaise * defaultBps) / 10000L
@@ -273,49 +297,64 @@ data class Booking(
 
     fun effectiveBarberNetPaise(defaultBps: Long = 1500L): Long {
         if (barberNetEarningsPaise > 0L) return barberNetEarningsPaise
-        val comm = effectiveBarberCommissionPaise(defaultBps)
-        return (barberServicePayablePaise - comm).coerceAtLeast(0L)
+        return (barberServicePayablePaise - effectiveBarberCommissionPaise(defaultBps)).coerceAtLeast(0L)
     }
 
-    fun isUpcoming(): Boolean = status in setOf(
-        "DRAFT", "SLOT_HELD", "PAYMENT_PENDING", "AWAITING_BARBER",
-        "CONFIRMED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS"
-    )
-
-    fun isCompletedTab(): Boolean = status in setOf("COMPLETED", "DISPUTED")
-
-    fun isCancelledTab(): Boolean = status in setOf("CANCELLED", "EXPIRED", "NO_SHOW")
-
-    fun friendlyStatusText(): String = when (status) {
-        "AWAITING_BARBER", "SLOT_HELD", "PAYMENT_PENDING" -> "Waiting for barber confirmation"
-        "CONFIRMED" -> "Barber assigned and booking confirmed"
-        "ON_THE_WAY" -> "Barber is on the way"
-        "ARRIVED" -> "Barber has arrived"
-        "IN_PROGRESS" -> "Service in progress"
-        "COMPLETED" -> "Service completed"
-        "CANCELLED" -> "Cancelled"
-        "EXPIRED" -> "Expired"
-        "DISPUTED" -> "Payment under review"
-        else -> status.replace("_", " ")
+    fun customerDemographicSummary(): String {
+        val genderLabel = when (customerGender.uppercase(Locale.US)) {
+            "FEMALE" -> "Female"
+            "CHILD" -> "Child"
+            "OTHER" -> "Other"
+            else -> "Male"
+        }
+        val agePart = if (customerAge > 0L) " · ${customerAge} yrs" else ""
+        val ladyBadge = if (preferLadyBarber) " · Lady Stylist Needed" else ""
+        return "$genderLabel$agePart$ladyBadge"
     }
 
-    fun directPaymentSummaryLabel(): String = when (directPaymentStatus) {
-        "CASH_DECLARED" -> "Cash received (${CurrencyUtils.formatRupees(directPaymentDeclaredPaise)})"
-        "UPI_DECLARED" -> "UPI declared (${CurrencyUtils.formatRupees(directPaymentDeclaredPaise)})"
-        "CUSTOMER_CONFIRMED" -> "Paid directly (${directPaymentMethod.ifBlank { "UPI/Cash" }})"
-        "PARTIAL_DECLARED" -> "Partial payment recorded"
-        "UNPAID_DECLARED" -> "Unconfirmed direct payment"
-        "DISPUTED" -> "Disputed direct payment"
-        else -> "Pay directly to barber after service"
+    fun bookingFeeSummaryLabel(): String {
+        return when (bookingFeeStatus) {
+            "ZERO_CUSTOMER_FEE" -> "Zero Upfront Fee"
+            "PAID_VERIFIED" -> "Booking Fee Verified (${CurrencyUtils.formatRupees(platformBookingFeePaise)})"
+            "UNPAID" -> "Booking Fee Pending Server/Admin Verification (${CurrencyUtils.formatRupees(platformBookingFeePaise)})"
+            "FAILED" -> "Booking Fee Verification Failed"
+            "REFUND_PENDING" -> "Booking Fee Refund Pending"
+            "REFUNDED" -> "Booking Fee Refunded"
+            else -> bookingFeeStatus.replace('_', ' ')
+        }
+    }
+
+    fun directPaymentSummaryLabel(): String {
+        return when (directPaymentStatus) {
+            "CASH_DECLARED" -> "Direct Cash Recorded by Barber (${CurrencyUtils.formatRupees(directPaymentDeclaredPaise)}) · Not App-Processed"
+            "UPI_DECLARED" -> "Direct UPI Recorded by Barber (${CurrencyUtils.formatRupees(directPaymentDeclaredPaise)}) · Not App-Processed"
+            "CUSTOMER_CONFIRMED" -> "Customer Confirmed Direct Payment (${directPaymentMethod.ifBlank { "Cash/UPI" }}) · Not App-Processed"
+            "UNPAID_DECLARED" -> "Direct Payment Unconfirmed"
+            "DISPUTED" -> "Direct Payment Disputed"
+            else -> "Pay barber directly after service (Cash / UPI)"
+        }
+    }
+
+    fun directPaymentAuditSummary(): String {
+        if (directPaymentRecordedBy.isBlank()) return ""
+        val timeText = directPaymentRecordedAt?.toDate()?.let { date ->
+            java.text.SimpleDateFormat("dd MMM, hh:mm a", Locale.US).format(date)
+        } ?: "Just now"
+        val recorder = if (directPaymentRecordedBy == barberId && barberName.isNotBlank()) {
+            barberName
+        } else {
+            "Barber (${directPaymentRecordedBy.take(8)})"
+        }
+        val refPart = if (directPaymentRef.isNotBlank()) " · Ref: $directPaymentRef" else ""
+        return "Recorded by $recorder at $timeText$refPart"
     }
 }
 
-@IgnoreExtraProperties
 data class BookingPrivateAddress(
     @DocumentId val id: String = "",
     val bookingId: String = "",
     val customerId: String = "",
-    val barberId: String = "",
+    val barberId: String = "UNASSIGNED",
     val fullAddressSnapshot: String = "",
     val accessInstructions: String = "",
     val customerPhone: String = "",
@@ -323,8 +362,7 @@ data class BookingPrivateAddress(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
-data class Review(
+data class ReviewItem(
     @DocumentId val id: String = "",
     val bookingId: String = "",
     val customerId: String = "",
@@ -337,7 +375,6 @@ data class Review(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
 data class SupportTicket(
     @DocumentId val id: String = "",
     val createdBy: String = "",
@@ -352,8 +389,7 @@ data class SupportTicket(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
-data class AuditLog(
+data class AuditLogEntry(
     @DocumentId val id: String = "",
     val actorId: String = "",
     val action: String = "",
@@ -363,54 +399,58 @@ data class AuditLog(
     @ServerTimestamp val createdAt: Timestamp? = null
 )
 
-@IgnoreExtraProperties
+typealias AuditLog = AuditLogEntry
+
 data class PlatformConfig(
-    @DocumentId val id: String = "",
+    @DocumentId val id: String = "global",
     val bookingFeeType: String = "FIXED",
-    val fixedBookingFeePaise: Long = 3000L, // Default ₹30 Booking Confirmation Fee (configurable by Admin)
+    val fixedBookingFeePaise: Long = 2900L,
     val percentageBookingFeeBps: Long = 0L,
-    val barberCommissionBps: Long = 0L,
+    val barberCommissionBps: Long = 1500L,
     val barberFlatFeePaise: Long = 0L,
     val freeCancellationCutoffHours: Long = 2L,
     val slotHoldMinutes: Long = 10L,
-    val policyText: String = "Free cancellation up to 2 hours before your appointment. Pay the booking confirmation fee now to reserve your barber, and pay the service charge directly to your barber after completion by Cash or UPI.",
+    val policyText: String = "Pay a small slot confirmation fee now and pay the service charge directly to your appointed barber after the service by Cash or UPI. Free cancellation before your barber starts travelling.",
     val maintenanceMode: Boolean = false,
     val updatedBy: String = "",
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
-    /**
-     * Resolves the Booking Confirmation Fee paid upfront to confirm the slot.
-     * Defaults to ₹30 (`3000L` paise) when using default/legacy configuration unless Admin explicitly sets 0.
-     */
-    fun effectiveCustomerBookingFeePaise(serviceSubtotalPaise: Long = 0L): Long {
-        return when {
-            bookingFeeType == "PERCENTAGE" && percentageBookingFeeBps > 0L ->
-                ((serviceSubtotalPaise * percentageBookingFeeBps) / 10000L).coerceAtLeast(0L)
-            fixedBookingFeePaise > 0L -> fixedBookingFeePaise
-            policyText.contains("[ZERO_FEE]") -> 0L
-            else -> 3000L
+    fun effectiveCustomerBookingFeePaise(serviceSubtotalPaise: Long = 30000L): Long =
+        computeCustomerConfirmationFeePaise(serviceSubtotalPaise)
+
+    fun computeCustomerConfirmationFeePaise(serviceSubtotalPaise: Long): Long {
+        if (serviceSubtotalPaise <= 0L) return 0L
+        return when (bookingFeeType) {
+            "PERCENTAGE" -> {
+                if (percentageBookingFeeBps > 0L) {
+                    (serviceSubtotalPaise * percentageBookingFeeBps) / 10000L
+                } else {
+                    fixedBookingFeePaise.takeIf { it > 0L } ?: 2900L
+                }
+            }
+            else -> fixedBookingFeePaise.takeIf { it > 0L } ?: 2900L
+        }
+    }
+
+    fun computeBarberCommissionPaise(servicePayablePaise: Long): Long {
+        return when (bookingFeeType) {
+            "BARBER_FLAT_FEE" -> barberFlatFeePaise.coerceAtMost(servicePayablePaise)
+            else -> {
+                val bps = if (barberCommissionBps > 0L) barberCommissionBps else 1500L
+                (servicePayablePaise * bps) / 10000L
+            }
         }
     }
 }
 
-object CurrencyUtils {
-    fun formatRupees(paise: Long): String {
-        val rupees = paise / 100
-        val rem = paise % 100
-        return if (rem == 0L) {
-            "₹$rupees"
-        } else {
-            String.format(Locale.US, "₹%d.%02d", rupees, rem)
-        }
-    }
-
-    fun formatHourSlot(hour: Long): String {
-        val h = hour.toInt()
-        return when {
-            h == 0 -> "12:00 AM"
-            h < 12 -> "$h:00 AM"
-            h == 12 -> "12:00 PM"
-            else -> "${h - 12}:00 PM"
-        }
-    }
-}
+data class VerifiedPayment(
+    @DocumentId val id: String = "",
+    val bookingId: String = "",
+    val customerId: String = "",
+    val amountPaise: Long = 0L,
+    val provider: String = "ADMIN_MANUAL",
+    val orderId: String = "",
+    val paymentId: String = "",
+    val verifiedBy: String = "",
+    @ServerTimestamp val verifiedAt: Timestamp? = null
+)

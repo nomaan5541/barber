@@ -2,7 +2,7 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "Private user account with role and account status.",
+      "description": "Private user account with role, onboarding demographics (DOB, age, gender), privacy consent, and account status.",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "description": "Firebase Auth UID" },
@@ -11,6 +11,11 @@
         "phone": { "type": "string", "description": "Contact mobile number" },
         "role": { "type": "string", "enum": ["CUSTOMER", "BARBER", "ADMIN"], "description": "Platform role" },
         "status": { "type": "string", "enum": ["ACTIVE", "PENDING", "SUSPENDED", "REJECTED"], "description": "Account status" },
+        "dob": { "type": "string", "description": "Date of birth YYYY-MM-DD" },
+        "age": { "type": "integer", "description": "Calculated or entered user age" },
+        "gender": { "type": "string", "enum": ["", "MALE", "FEMALE", "OTHER"], "description": "User gender for stylist matching" },
+        "onboardingCompleted": { "type": "boolean", "description": "Whether initial role & profile onboarding is complete" },
+        "privacyAccepted": { "type": "boolean", "description": "Whether user accepted Privacy Policy & Safety Terms" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
       },
@@ -18,14 +23,18 @@
     },
     "BarberProfile": {
       "title": "BarberProfile",
-      "description": "Public barber & partner barbershop profile, skills, perfection badge, GPS coordinates, schedule, and home-visit eligibility.",
+      "description": "Partner barber / lady hair stylist profile, contact phone, gender specialization, live GPS coordinates, schedule, and home-visit eligibility.",
       "type": "object",
       "properties": {
-        "barberId": { "type": "string", "description": "Barber UID or admin-created barber ID" },
+        "barberId": { "type": "string", "description": "Barber UID" },
         "name": { "type": "string", "description": "Barber display name" },
+        "phone": { "type": "string", "description": "Verified barber contact phone shared with matched customers" },
+        "gender": { "type": "string", "enum": ["", "MALE", "FEMALE", "OTHER"], "description": "Barber gender (MALE / FEMALE Lady Stylist / OTHER)" },
+        "servesLadies": { "type": "boolean", "description": "Whether stylist accepts female/ladies hair appointments" },
+        "servesMen": { "type": "boolean", "description": "Whether stylist accepts male haircut/beard appointments" },
         "bio": { "type": "string", "description": "Short biography" },
         "experienceYears": { "type": "integer", "description": "Years of professional experience" },
-        "approvalStatus": { "type": "string", "enum": ["PENDING", "APPROVED", "SUSPENDED", "REJECTED"], "description": "Admin approval status" },
+        "approvalStatus": { "type": "string", "enum": ["PENDING", "APPROVED", "SUSPENDED", "REJECTED"], "description": "Partner verification status" },
         "isOnline": { "type": "boolean", "description": "Working/available toggle" },
         "ratingAvg": { "type": "number", "description": "Average customer star rating" },
         "reviewCount": { "type": "integer", "description": "Total approved reviews" },
@@ -39,12 +48,12 @@
         "travelBufferMinutes": { "type": "integer", "description": "Travel buffer minutes between jobs" },
         "upiId": { "type": "string", "description": "Optional preferred UPI ID for direct customer payment" },
         "skills": { "type": "array", "description": "Bounded list of grooming skills & specialties (<= 15)" },
-        "perfectionBadge": { "type": "string", "description": "Signature perfection highlight e.g. 99% Skin Fade Precision" },
-        "shopName": { "type": "string", "description": "Partner barber shop / salon name" },
-        "shopAddress": { "type": "string", "description": "Barber shop locality and street address" },
-        "homeVisitAvailable": { "type": "boolean", "description": "Whether shop/barber dispatches to customer homes" },
-        "latitude": { "type": "number", "description": "Shop/base GPS latitude" },
-        "longitude": { "type": "number", "description": "Shop/base GPS longitude" },
+        "perfectionBadge": { "type": "string", "description": "Signature highlight badge" },
+        "shopName": { "type": "string", "description": "Partner barber studio / salon name" },
+        "shopAddress": { "type": "string", "description": "Primary dispatch locality" },
+        "homeVisitAvailable": { "type": "boolean", "description": "Whether barber dispatches to customer homes" },
+        "latitude": { "type": "number", "description": "Live or base GPS latitude" },
+        "longitude": { "type": "number", "description": "Live or base GPS longitude" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
       },
@@ -52,11 +61,11 @@
     },
     "Service": {
       "title": "Service",
-      "description": "Grooming service or combo package in the catalog.",
+      "description": "Grooming service or combo package in the catalog, including Men's & Ladies' home services.",
       "type": "object",
       "properties": {
         "name": { "type": "string", "description": "Service name" },
-        "category": { "type": "string", "enum": ["HAIRCUTS", "BEARD_MOUSTACHE", "HAIR_CARE", "ADD_ONS", "PACKAGES"], "description": "Catalog category" },
+        "category": { "type": "string", "enum": ["HAIRCUTS", "LADIES_STYLING", "BEARD_MOUSTACHE", "HAIR_CARE", "ADD_ONS", "PACKAGES"], "description": "Catalog category" },
         "description": { "type": "string", "description": "Customer-facing service description" },
         "pricePaise": { "type": "integer", "description": "Base price in integer minor units (paise)" },
         "durationMinutes": { "type": "integer", "description": "Estimated service duration in minutes" },
@@ -74,7 +83,7 @@
       "description": "Supported geographic zone and travel fee configuration.",
       "type": "object",
       "properties": {
-        "name": { "type": "string", "description": "Zone name (e.g., Indiranagar & Koramangala)" },
+        "name": { "type": "string", "description": "Zone name" },
         "postalCodes": { "type": "array", "description": "Bounded list of covered PIN codes (<= 30)" },
         "travelChargePaise": { "type": "integer", "description": "Travel fee in paise" },
         "maxDistanceKm": { "type": "integer", "description": "Maximum barber travel distance in km" },
@@ -124,14 +133,24 @@
     },
     "Booking": {
       "title": "Booking",
-      "description": "Core at-home barber booking with ₹0 customer platform fee and platform commission charged from Barber.",
+      "description": "Open-dispatch at-home barber booking with gender/age/lady-stylist matching and live GPS barber tracking.",
       "type": "object",
       "properties": {
         "bookingNumber": { "type": "string", "description": "Human-readable reference e.g. DC-2026-1042" },
         "customerId": { "type": "string", "description": "Customer UID" },
         "customerName": { "type": "string", "description": "Customer name snapshot" },
-        "barberId": { "type": "string", "description": "Assigned barber ID" },
+        "customerPhone": { "type": "string", "description": "Customer verified phone snapshot" },
+        "customerGender": { "type": "string", "enum": ["", "MALE", "FEMALE", "CHILD", "OTHER"], "description": "Recipient gender" },
+        "customerAge": { "type": "integer", "description": "Recipient age" },
+        "preferLadyBarber": { "type": "boolean", "description": "True when female client requests a Lady Hair Barber / Female Stylist" },
+        "bookingMode": { "type": "string", "enum": ["ASAP", "SCHEDULED"], "description": "ASAP instant dispatch or scheduled slot" },
+        "customerLat": { "type": "number", "description": "Customer home GPS latitude for dispatch map" },
+        "customerLon": { "type": "number", "description": "Customer home GPS longitude for dispatch map" },
+        "barberId": { "type": "string", "description": "UNASSIGNED while searching, or assigned barber UID" },
         "barberName": { "type": "string", "description": "Assigned barber name" },
+        "barberPhone": { "type": "string", "description": "Assigned barber phone for direct call/SMS" },
+        "barberLat": { "type": "number", "description": "Assigned barber live GPS latitude during trip" },
+        "barberLon": { "type": "number", "description": "Assigned barber live GPS longitude during trip" },
         "status": {
           "type": "string",
           "enum": ["DRAFT", "SLOT_HELD", "PAYMENT_PENDING", "AWAITING_BARBER", "CONFIRMED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "EXPIRED", "NO_SHOW", "DISPUTED"],
@@ -147,9 +166,9 @@
         "approvedAddOnPaise": { "type": "integer", "description": "Customer-approved extra service amount in paise" },
         "travelChargePaise": { "type": "integer", "description": "Snapshotted travel charge in paise" },
         "barberServicePayablePaise": { "type": "integer", "description": "Total payable directly by customer to barber in paise" },
-        "platformBookingFeePaise": { "type": "integer", "description": "Customer platform fee (0 paise — customers pay ₹0 platform fee)" },
-        "totalCustomerCostPaise": { "type": "integer", "description": "Total customer cost (equals barberServicePayablePaise when customer fee is 0)" },
-        "bookingFeeStatus": { "type": "string", "enum": ["ZERO_CUSTOMER_FEE", "UNPAID", "PAID_VERIFIED", "FAILED", "REFUND_PENDING", "REFUNDED"], "description": "Customer fee state (ZERO_CUSTOMER_FEE)" },
+        "platformBookingFeePaise": { "type": "integer", "description": "Platform confirmation fee in paise" },
+        "totalCustomerCostPaise": { "type": "integer", "description": "Total customer cost in paise" },
+        "bookingFeeStatus": { "type": "string", "enum": ["ZERO_CUSTOMER_FEE", "UNPAID", "PAID_VERIFIED", "FAILED", "REFUND_PENDING", "REFUNDED"], "description": "Customer fee state" },
         "bookingFeeTxRef": { "type": "string", "description": "Slot reservation reference" },
         "barberCommissionPaise": { "type": "integer", "description": "Platform commission charged from the Barber in paise" },
         "barberNetEarningsPaise": { "type": "integer", "description": "Barber net take-home after platform commission" },
@@ -158,6 +177,8 @@
         "directPaymentMethod": { "type": "string", "enum": ["NONE", "CASH", "UPI"], "description": "Direct payment method" },
         "directPaymentDeclaredPaise": { "type": "integer", "description": "Amount declared received by barber in paise" },
         "directPaymentRef": { "type": "string", "description": "Optional UPI reference or note" },
+        "directPaymentRecordedBy": { "type": "string", "description": "Barber UID who recorded the post-service direct payment" },
+        "directPaymentRecordedAt": { "type": "string", "format": "date-time", "description": "Server timestamp when barber recorded post-service payment" },
         "pendingAddOnServiceId": { "type": "string", "description": "Requested extra service ID awaiting customer approval" },
         "pendingAddOnName": { "type": "string", "description": "Requested extra service name" },
         "pendingAddOnPricePaise": { "type": "integer", "description": "Requested extra service price in paise" },
@@ -183,12 +204,12 @@
     },
     "BookingPrivateAddress": {
       "title": "BookingPrivateAddress",
-      "description": "Snapshotted full customer door address revealed ONLY to customer, assigned barber on active job, or admin.",
+      "description": "Snapshotted full customer door address & phone revealed ONLY to customer, assigned barber on active job, or admin.",
       "type": "object",
       "properties": {
         "bookingId": { "type": "string", "description": "Parent booking ID" },
         "customerId": { "type": "string", "description": "Customer UID" },
-        "barberId": { "type": "string", "description": "Assigned barber UID" },
+        "barberId": { "type": "string", "description": "UNASSIGNED initially or assigned barber UID" },
         "fullAddressSnapshot": { "type": "string", "description": "Complete door/flat, street, landmark, PIN" },
         "accessInstructions": { "type": "string", "description": "Gate/security instructions" },
         "customerPhone": { "type": "string", "description": "Customer contact number for visit" },
@@ -248,28 +269,44 @@
     },
     "PlatformConfig": {
       "title": "PlatformConfig",
-      "description": "Admin-managed barber commission rules (₹0 customer fee) and cancellation policy.",
+      "description": "Admin-managed barber commission rules and cancellation policy.",
       "type": "object",
       "properties": {
         "bookingFeeType": { "type": "string", "enum": ["BARBER_COMMISSION_PERCENT", "BARBER_FLAT_FEE", "FIXED", "PERCENTAGE"], "description": "Barber commission mode" },
-        "fixedBookingFeePaise": { "type": "integer", "description": "Customer fee (0 paise)" },
-        "percentageBookingFeeBps": { "type": "integer", "description": "Customer percentage fee (0 bps)" },
-        "barberCommissionBps": { "type": "integer", "description": "Platform commission charged from Barber in basis points (e.g. 1500 = 15%)" },
+        "fixedBookingFeePaise": { "type": "integer", "description": "Platform confirmation fee in paise" },
+        "percentageBookingFeeBps": { "type": "integer", "description": "Customer percentage fee" },
+        "barberCommissionBps": { "type": "integer", "description": "Platform commission charged from Barber in basis points" },
         "barberFlatFeePaise": { "type": "integer", "description": "Flat per-job fee charged from Barber in paise" },
         "freeCancellationCutoffHours": { "type": "integer", "description": "Cutoff hours before appointment for free cancellation" },
         "slotHoldMinutes": { "type": "integer", "description": "Minutes a slot is held during checkout" },
-        "policyText": { "type": "string", "description": "Customer-facing cancellation and zero-fee policy text" },
+        "policyText": { "type": "string", "description": "Customer-facing cancellation and safety policy text" },
         "maintenanceMode": { "type": "boolean", "description": "Platform maintenance flag" },
         "updatedBy": { "type": "string", "description": "UID of admin who updated settings" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
       },
       "required": ["bookingFeeType", "fixedBookingFeePaise", "percentageBookingFeeBps", "freeCancellationCutoffHours", "slotHoldMinutes", "policyText", "maintenanceMode", "updatedBy", "updatedAt"]
+    },
+    "VerifiedPayment": {
+      "title": "VerifiedPayment",
+      "description": "Server-side or Admin-verified upfront booking fee receipt (e.g., Razorpay HMAC-verified payment). Clients cannot write this document.",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "description": "Booking ID" },
+        "customerId": { "type": "string", "description": "Customer UID" },
+        "amountPaise": { "type": "integer", "description": "Verified upfront booking fee in paise" },
+        "provider": { "type": "string", "enum": ["RAZORPAY_WEBHOOK", "ADMIN_MANUAL"], "description": "Verification authority" },
+        "orderId": { "type": "string", "description": "Razorpay order_id or internal order ref" },
+        "paymentId": { "type": "string", "description": "Razorpay payment_id or verified UTR" },
+        "verifiedBy": { "type": "string", "description": "Cloud Function service account or Admin UID" },
+        "verifiedAt": { "type": "string", "format": "date-time", "description": "Server verification timestamp" }
+      },
+      "required": ["bookingId", "customerId", "amountPaise", "provider", "orderId", "paymentId", "verifiedBy", "verifiedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "Private user account profiles and RBAC state."
+      "description": "Private user account profiles, DOB/gender onboarding, and RBAC state."
     },
     "/users/{userId}/addresses/{addressId}": {
       "schema": "CustomerAddress",
@@ -277,11 +314,11 @@
     },
     "/barberProfiles/{barberId}": {
       "schema": "BarberProfile",
-      "description": "Barber & partner barbershop profiles, skills, coordinates, schedules, and approval status."
+      "description": "Verified barber & lady hair stylist profiles, live GPS coordinates, schedules, and approval status."
     },
     "/services/{serviceId}": {
       "schema": "Service",
-      "description": "Service catalog and combo packages."
+      "description": "Service catalog including men's haircuts, ladies styling, beard rituals, and combos."
     },
     "/serviceAreas/{areaId}": {
       "schema": "ServiceArea",
@@ -293,11 +330,11 @@
     },
     "/bookings/{bookingId}": {
       "schema": "Booking",
-      "description": "Customer-barber appointments with zero customer fee and barber commission tracking."
+      "description": "Open-dispatch and assigned appointments with live barber GPS movement and gender/stylist matching."
     },
     "/bookings/{bookingId}/privateDetails/{detailId}": {
       "schema": "BookingPrivateAddress",
-      "description": "Protected full customer home door address snapshot."
+      "description": "Protected full customer home door address and phone snapshot."
     },
     "/reviews/{reviewId}": {
       "schema": "Review",
@@ -314,6 +351,10 @@
     "/platformConfig/{configId}": {
       "schema": "PlatformConfig",
       "description": "Global barber commission and cancellation settings."
+    },
+    "/verifiedPayments/{bookingId}": {
+      "schema": "VerifiedPayment",
+      "description": "Server-side / Admin-only verified upfront booking fee receipts."
     }
   }
 }

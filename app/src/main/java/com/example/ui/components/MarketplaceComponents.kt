@@ -74,8 +74,17 @@ data class ServiceVisualMeta(
 fun serviceVisualFor(service: CatalogService): ServiceVisualMeta {
     val lowerName = service.name.lowercase()
     return when {
+        service.category == "LADIES_STYLING" ||
+            lowerName.contains("ladies") ||
+            lowerName.contains("lady") ||
+            lowerName.contains("women") ||
+            lowerName.contains("layer") -> ServiceVisualMeta(
+            drawableRes = R.drawable.ladies_hair_stylist_1793031670379,
+            badgeLabel = "LADY HAIR STYLIST AT HOME",
+            visualCaption = "Precision ladies haircut, layers & salon blowout at home"
+        )
         service.isPackage || service.category == "PACKAGES" -> ServiceVisualMeta(
-            drawableRes = R.drawable.img_svc_package_1792915154765,
+            drawableRes = R.drawable.hero_home_grooming_1793031644119,
             badgeLabel = "COMPLETE GROOMING COMBO",
             visualCaption = "Full salon ritual delivered to your home"
         )
@@ -84,7 +93,7 @@ fun serviceVisualFor(service: CatalogService): ServiceVisualMeta {
             lowerName.contains("fade") ||
             lowerName.contains("scissor") ||
             lowerName.contains("cut") -> ServiceVisualMeta(
-            drawableRes = R.drawable.img_svc_haircut_1792915150040,
+            drawableRes = R.drawable.mens_precision_cut_1793031645963,
             badgeLabel = "AT-HOME HAIRCUTTING",
             visualCaption = "Precision skin fade, taper & scissor tailoring"
         )
@@ -92,23 +101,14 @@ fun serviceVisualFor(service: CatalogService): ServiceVisualMeta {
             lowerName.contains("beard") ||
             lowerName.contains("shave") ||
             lowerName.contains("moustache") -> ServiceVisualMeta(
-            drawableRes = R.drawable.img_svc_beard_1792915151623,
+            drawableRes = R.drawable.beard_razor_shave_1793031671256,
             badgeLabel = "BEARD & RAZOR SCULPT",
             visualCaption = "Sharp contour line-up & hot towel finish"
         )
-        service.category == "HAIR_CARE" ||
-            lowerName.contains("wash") ||
-            lowerName.contains("massage") ||
-            lowerName.contains("spa") ||
-            lowerName.contains("blow") -> ServiceVisualMeta(
-            drawableRes = R.drawable.img_svc_hair_care_1792915152006,
-            badgeLabel = "SCALP SPA & BLOW-DRY",
-            visualCaption = "Revitalizing wash, head massage & styling"
-        )
         else -> ServiceVisualMeta(
-            drawableRes = R.drawable.img_svc_facial_1792915153778,
-            badgeLabel = "FACIAL & DETAN CARE",
-            visualCaption = "Charcoal detox, scrub & bright skin care"
+            drawableRes = R.drawable.spa_detan_combo_1793031700195,
+            badgeLabel = "SCALP SPA & DETAN CARE",
+            visualCaption = "Revitalizing champi, detan facial & blow-dry care"
         )
     }
 }
@@ -332,10 +332,11 @@ fun VisitProgressStepper(
         else -> 0
     }
 
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    LiquidGlassSurface(
+        strength = GlassMaterialStrength.AtelierCard,
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 2.dp,
+        interactivePhysics = false,
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -354,14 +355,18 @@ fun VisitProgressStepper(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(
                                 when {
                                     isCompleted -> SageVerified
-                                    isCurrent -> MaterialTheme.colorScheme.primary
+                                    isCurrent -> EspressoHeaderBg
                                     else -> MaterialTheme.colorScheme.surfaceContainerHigh
                                 }
+                            )
+                            .then(
+                                if (isCurrent) Modifier.border(1.dp, BrassGold.copy(alpha = 0.7f), CircleShape)
+                                else Modifier
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -376,7 +381,8 @@ fun VisitProgressStepper(
                             Text(
                                 text = "${idx + 1}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                                fontWeight = FontWeight.Bold,
+                                color = if (isCurrent) Color(0xFFFFDF9E)
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }

@@ -1,6 +1,6 @@
 {
   "name": "DoorCut",
-  "description": "At-home grooming & nearest barber shop marketplace with zero customer platform fee, auto-GPS door detection, specialist skill badges, and barber commission tracking.",
+  "description": "On-demand home barber and lady hair stylist marketplace with Google Sign-In onboarding, open-pool instant dispatch, live GPS movement tracking, and verified phone coordination.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

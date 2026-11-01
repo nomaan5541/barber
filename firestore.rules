@@ -43,13 +43,22 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.keys().hasAll(['userId', 'name', 'email', 'phone', 'role', 'status', 'createdAt', 'updatedAt']) &&
-             data.keys().hasOnly(['userId', 'name', 'email', 'phone', 'role', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly([
+               'userId', 'name', 'email', 'phone', 'role', 'status',
+               'dob', 'age', 'gender', 'onboardingCompleted', 'privacyAccepted',
+               'createdAt', 'updatedAt'
+             ]) &&
              data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
              data.email is string && data.email.size() <= 150 &&
-             data.phone is string && data.phone.size() <= 20 &&
+             data.phone is string && data.phone.size() <= 30 &&
              data.role in ['CUSTOMER', 'BARBER', 'ADMIN'] &&
              data.status in ['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED'] &&
+             (!('dob' in data) || (data.dob is string && data.dob.size() <= 30)) &&
+             (!('age' in data) || (data.age is int && data.age >= 0 && data.age <= 120)) &&
+             (!('gender' in data) || (data.gender in ['', 'MALE', 'FEMALE', 'OTHER'])) &&
+             (!('onboardingCompleted' in data) || (data.onboardingCompleted is bool)) &&
+             (!('privacyAccepted' in data) || (data.privacyAccepted is bool)) &&
              data.createdAt is timestamp &&
              isValidTimestamp(data.updatedAt);
     }
@@ -59,10 +68,10 @@ service cloud.firestore {
              data.keys().hasOnly(['customerId', 'label', 'flatHouse', 'streetArea', 'landmark', 'postalCode', 'serviceAreaId', 'serviceAreaName', 'accessInstructions', 'isDefault', 'latitude', 'longitude', 'createdAt', 'updatedAt']) &&
              data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
              data.label in ['HOME', 'OFFICE', 'OTHER'] &&
-             data.flatHouse is string && data.flatHouse.size() >= 1 && data.flatHouse.size() <= 120 &&
+             data.flatHouse is string && data.flatHouse.size() >= 1 && data.flatHouse.size() <= 140 &&
              data.streetArea is string && data.streetArea.size() >= 1 && data.streetArea.size() <= 200 &&
              data.landmark is string && data.landmark.size() <= 150 &&
-             data.postalCode is string && data.postalCode.size() >= 4 && data.postalCode.size() <= 12 &&
+             data.postalCode is string && data.postalCode.size() >= 4 && data.postalCode.size() <= 16 &&
              data.serviceAreaId is string && data.serviceAreaId.size() <= 128 &&
              data.serviceAreaName is string && data.serviceAreaName.size() <= 120 &&
              data.accessInstructions is string && data.accessInstructions.size() <= 300 &&
@@ -76,13 +85,18 @@ service cloud.firestore {
     function isValidBarberProfile(data) {
       return data.keys().hasAll(['barberId', 'name', 'bio', 'experienceYears', 'approvalStatus', 'isOnline', 'ratingAvg', 'reviewCount', 'serviceIds', 'serviceAreaIds', 'workingDays', 'workStartHour', 'workEndHour', 'breakStartHour', 'breakEndHour', 'travelBufferMinutes', 'createdAt', 'updatedAt']) &&
              data.keys().hasOnly([
-               'barberId', 'name', 'bio', 'experienceYears', 'approvalStatus', 'isOnline', 'ratingAvg', 'reviewCount',
+               'barberId', 'name', 'phone', 'gender', 'servesLadies', 'servesMen',
+               'bio', 'experienceYears', 'approvalStatus', 'isOnline', 'ratingAvg', 'reviewCount',
                'serviceIds', 'serviceAreaIds', 'workingDays', 'workStartHour', 'workEndHour', 'breakStartHour', 'breakEndHour',
                'travelBufferMinutes', 'upiId', 'skills', 'perfectionBadge', 'shopName', 'shopAddress',
                'homeVisitAvailable', 'latitude', 'longitude', 'createdAt', 'updatedAt'
              ]) &&
              data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('gender' in data) || (data.gender in ['', 'MALE', 'FEMALE', 'OTHER'])) &&
+             (!('servesLadies' in data) || (data.servesLadies is bool)) &&
+             (!('servesMen' in data) || (data.servesMen is bool)) &&
              data.bio is string && data.bio.size() <= 500 &&
              data.experienceYears is int && data.experienceYears >= 0 && data.experienceYears <= 60 &&
              data.approvalStatus in ['PENDING', 'APPROVED', 'SUSPENDED', 'REJECTED'] &&
@@ -113,7 +127,7 @@ service cloud.firestore {
       return data.keys().hasAll(['name', 'category', 'description', 'pricePaise', 'durationMinutes', 'isActive', 'isPackage', 'instructions', 'sortOrder', 'createdAt', 'updatedAt']) &&
              data.keys().hasOnly(['name', 'category', 'description', 'pricePaise', 'durationMinutes', 'isActive', 'isPackage', 'instructions', 'sortOrder', 'createdAt', 'updatedAt']) &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
-             data.category in ['HAIRCUTS', 'BEARD_MOUSTACHE', 'HAIR_CARE', 'ADD_ONS', 'PACKAGES'] &&
+             data.category in ['HAIRCUTS', 'LADIES_STYLING', 'BEARD_MOUSTACHE', 'HAIR_CARE', 'ADD_ONS', 'PACKAGES'] &&
              data.description is string && data.description.size() <= 500 &&
              data.pricePaise is int && data.pricePaise >= 0 && data.pricePaise <= 10000000 &&
              data.durationMinutes is int && data.durationMinutes >= 5 && data.durationMinutes <= 480 &&
@@ -150,68 +164,66 @@ service cloud.firestore {
              isValidTimestamp(data.updatedAt);
     }
 
-    function isValidBooking(data) {
-      return data.keys().hasAll([
-               'bookingNumber', 'customerId', 'customerName', 'barberId', 'barberName', 'status',
-               'dateKey', 'startHour', 'durationMinutes', 'serviceIds', 'serviceNamesSummary', 'areaName',
-               'serviceSubtotalPaise', 'approvedAddOnPaise', 'travelChargePaise', 'barberServicePayablePaise',
-               'platformBookingFeePaise', 'totalCustomerCostPaise', 'bookingFeeStatus', 'bookingFeeTxRef',
-               'directPaymentStatus', 'directPaymentMethod', 'directPaymentDeclaredPaise', 'directPaymentRef',
-               'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise', 'pendingAddOnDurationMin',
-               'pendingAddOnStatus', 'customerNotes', 'cancellationReason', 'policySnapshot', 'hasReview',
-               'createdAt', 'updatedAt'
-             ]) &&
-             data.keys().hasOnly([
-               'bookingNumber', 'customerId', 'customerName', 'barberId', 'barberName', 'status',
+    function isValidBookingFields(data) {
+      return data.bookingNumber is string && data.bookingNumber.size() >= 3 && data.bookingNumber.size() <= 40 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
+             data.barberName is string && data.barberName.size() >= 1 && data.barberName.size() <= 100 &&
+             data.get('customerGender', 'MALE') in ['', 'MALE', 'FEMALE', 'CHILD', 'OTHER'] &&
+             data.get('preferLadyBarber', false) is bool &&
+             data.get('bookingMode', 'ASAP') in ['ASAP', 'SCHEDULED'] &&
+             data.status in ['DRAFT', 'SLOT_HELD', 'PAYMENT_PENDING', 'AWAITING_BARBER', 'CONFIRMED', 'ON_THE_WAY', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_SHOW', 'DISPUTED'] &&
+             data.dateKey is string && data.dateKey.size() == 10 &&
+             data.startHour is int && data.startHour >= 0 && data.startHour <= 23 &&
+             data.durationMinutes is int && data.durationMinutes >= 5 && data.durationMinutes <= 600 &&
+             data.serviceIds is list && data.serviceIds.size() >= 1 && data.serviceIds.size() <= 15 &&
+             data.serviceNamesSummary is string && data.areaName is string &&
+             data.serviceSubtotalPaise is int && data.serviceSubtotalPaise >= 0 &&
+             data.approvedAddOnPaise is int && data.approvedAddOnPaise >= 0 &&
+             data.travelChargePaise is int && data.travelChargePaise >= 0 &&
+             data.barberServicePayablePaise == (data.serviceSubtotalPaise + data.approvedAddOnPaise + data.travelChargePaise) &&
+             data.platformBookingFeePaise is int && data.platformBookingFeePaise >= 0 &&
+             data.totalCustomerCostPaise == (data.barberServicePayablePaise + data.platformBookingFeePaise) &&
+             data.bookingFeeStatus in ['ZERO_CUSTOMER_FEE', 'UNPAID', 'PAID_VERIFIED', 'FAILED', 'REFUND_PENDING', 'REFUNDED'] &&
+             data.bookingFeeTxRef is string &&
+             data.get('barberCommissionPaise', 0) is int && data.get('barberCommissionPaise', 0) >= 0 &&
+             data.directPaymentStatus in ['PENDING', 'CASH_DECLARED', 'UPI_DECLARED', 'PARTIAL_DECLARED', 'UNPAID_DECLARED', 'CUSTOMER_CONFIRMED', 'DISPUTED'] &&
+             data.directPaymentMethod in ['NONE', 'CASH', 'UPI'] &&
+             data.directPaymentDeclaredPaise is int && data.directPaymentDeclaredPaise >= 0 &&
+             data.directPaymentRef is string &&
+             (!('directPaymentRecordedBy' in data) || (data.directPaymentRecordedBy is string && data.directPaymentRecordedBy.size() <= 128)) &&
+             (!('directPaymentRecordedAt' in data) || data.directPaymentRecordedAt == null || isValidTimestamp(data.directPaymentRecordedAt)) &&
+             data.pendingAddOnServiceId is string &&
+             data.pendingAddOnName is string &&
+             data.pendingAddOnPricePaise is int && data.pendingAddOnPricePaise >= 0 &&
+             data.pendingAddOnDurationMin is int &&
+             data.pendingAddOnStatus in ['NONE', 'REQUESTED', 'APPROVED', 'DECLINED'] &&
+             data.customerNotes is string &&
+             data.cancellationReason is string &&
+             data.policySnapshot is string &&
+             data.hasReview is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidBookingCreate(data) {
+      return data.keys().hasOnly([
+               'bookingNumber', 'customerId', 'customerName', 'customerPhone',
+               'customerGender', 'customerAge', 'preferLadyBarber', 'bookingMode',
+               'customerLat', 'customerLon',
+               'barberId', 'barberName', 'barberPhone', 'barberLat', 'barberLon', 'status',
                'dateKey', 'startHour', 'durationMinutes', 'serviceIds', 'serviceNamesSummary', 'areaName',
                'serviceSubtotalPaise', 'approvedAddOnPaise', 'travelChargePaise', 'barberServicePayablePaise',
                'platformBookingFeePaise', 'totalCustomerCostPaise', 'bookingFeeStatus', 'bookingFeeTxRef',
                'barberCommissionPaise', 'barberNetEarningsPaise', 'barberCommissionStatus',
                'directPaymentStatus', 'directPaymentMethod', 'directPaymentDeclaredPaise', 'directPaymentRef',
+               'directPaymentRecordedBy', 'directPaymentRecordedAt',
                'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise', 'pendingAddOnDurationMin',
                'pendingAddOnStatus', 'customerNotes', 'cancellationReason', 'policySnapshot', 'hasReview',
                'createdAt', 'updatedAt'
              ]) &&
-             data.bookingNumber is string && data.bookingNumber.size() >= 3 && data.bookingNumber.size() <= 40 &&
-             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
-             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
-             data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
-             data.barberName is string && data.barberName.size() >= 1 && data.barberName.size() <= 100 &&
-             data.status in ['DRAFT', 'SLOT_HELD', 'PAYMENT_PENDING', 'AWAITING_BARBER', 'CONFIRMED', 'ON_THE_WAY', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_SHOW', 'DISPUTED'] &&
-             data.dateKey is string && data.dateKey.size() == 10 &&
-             data.startHour is int && data.startHour >= 0 && data.startHour <= 23 &&
-             data.durationMinutes is int && data.durationMinutes >= 5 && data.durationMinutes <= 600 &&
-             data.serviceIds is list && data.serviceIds.size() >= 1 && data.serviceIds.size() <= 15 && data.serviceIds[0] is string &&
-             data.serviceNamesSummary is string && data.serviceNamesSummary.size() >= 1 && data.serviceNamesSummary.size() <= 500 &&
-             data.areaName is string && data.areaName.size() >= 1 && data.areaName.size() <= 120 &&
-             data.serviceSubtotalPaise is int && data.serviceSubtotalPaise >= 0 &&
-             data.approvedAddOnPaise is int && data.approvedAddOnPaise >= 0 &&
-             data.travelChargePaise is int && data.travelChargePaise >= 0 &&
-             data.barberServicePayablePaise is int &&
-             data.barberServicePayablePaise == (data.serviceSubtotalPaise + data.approvedAddOnPaise + data.travelChargePaise) &&
-             data.platformBookingFeePaise is int && data.platformBookingFeePaise >= 0 &&
-             data.totalCustomerCostPaise is int &&
-             data.totalCustomerCostPaise == (data.barberServicePayablePaise + data.platformBookingFeePaise) &&
-             data.bookingFeeStatus in ['ZERO_CUSTOMER_FEE', 'UNPAID', 'PAID_VERIFIED', 'FAILED', 'REFUND_PENDING', 'REFUNDED'] &&
-             data.bookingFeeTxRef is string && data.bookingFeeTxRef.size() <= 120 &&
-             (!('barberCommissionPaise' in data) || (data.barberCommissionPaise is int && data.barberCommissionPaise >= 0 && data.barberCommissionPaise <= data.barberServicePayablePaise)) &&
-             (!('barberNetEarningsPaise' in data) || (data.barberNetEarningsPaise is int && data.barberNetEarningsPaise >= 0)) &&
-             (!('barberCommissionStatus' in data) || (data.barberCommissionStatus in ['PENDING_SETTLEMENT', 'SETTLED', 'WAIVED'])) &&
-             data.directPaymentStatus in ['PENDING', 'CASH_DECLARED', 'UPI_DECLARED', 'PARTIAL_DECLARED', 'UNPAID_DECLARED', 'CUSTOMER_CONFIRMED', 'DISPUTED'] &&
-             data.directPaymentMethod in ['NONE', 'CASH', 'UPI'] &&
-             data.directPaymentDeclaredPaise is int && data.directPaymentDeclaredPaise >= 0 &&
-             data.directPaymentRef is string && data.directPaymentRef.size() <= 120 &&
-             data.pendingAddOnServiceId is string && data.pendingAddOnServiceId.size() <= 128 &&
-             data.pendingAddOnName is string && data.pendingAddOnName.size() <= 100 &&
-             data.pendingAddOnPricePaise is int && data.pendingAddOnPricePaise >= 0 &&
-             data.pendingAddOnDurationMin is int && data.pendingAddOnDurationMin >= 0 && data.pendingAddOnDurationMin <= 300 &&
-             data.pendingAddOnStatus in ['NONE', 'REQUESTED', 'APPROVED', 'DECLINED'] &&
-             data.customerNotes is string && data.customerNotes.size() <= 500 &&
-             data.cancellationReason is string && data.cancellationReason.size() <= 300 &&
-             data.policySnapshot is string && data.policySnapshot.size() <= 500 &&
-             data.hasReview is bool &&
-             data.createdAt is timestamp &&
-             isValidTimestamp(data.updatedAt);
+             isValidBookingFields(data);
     }
 
     function isValidBookingPrivateAddress(data) {
@@ -222,7 +234,7 @@ service cloud.firestore {
              data.barberId is string && data.barberId.size() >= 1 && data.barberId.size() <= 128 &&
              data.fullAddressSnapshot is string && data.fullAddressSnapshot.size() >= 3 && data.fullAddressSnapshot.size() <= 500 &&
              data.accessInstructions is string && data.accessInstructions.size() <= 300 &&
-             data.customerPhone is string && data.customerPhone.size() <= 20 &&
+             data.customerPhone is string && data.customerPhone.size() <= 30 &&
              data.createdAt is timestamp &&
              isValidTimestamp(data.updatedAt);
     }
@@ -278,13 +290,26 @@ service cloud.firestore {
              data.fixedBookingFeePaise is int && data.fixedBookingFeePaise >= 0 && data.fixedBookingFeePaise <= 500000 &&
              data.percentageBookingFeeBps is int && data.percentageBookingFeeBps >= 0 && data.percentageBookingFeeBps <= 5000 &&
              (!('barberCommissionBps' in data) || (data.barberCommissionBps is int && data.barberCommissionBps >= 0 && data.barberCommissionBps <= 5000)) &&
-             (!('barberFlatFeePaise' in data) || (data.barberFlatFeePaise is int && data.barberFlatFeePaise >= 0 && data.barberFlatFeePaise <= 500000)) &&
+             (!('barberFlatFeePaise' in data) || (data.barberFlatFeePaise is int && data.barberFlatFeePaise <= 500000)) &&
              data.freeCancellationCutoffHours is int && data.freeCancellationCutoffHours >= 0 && data.freeCancellationCutoffHours <= 72 &&
              data.slotHoldMinutes is int && data.slotHoldMinutes >= 1 && data.slotHoldMinutes <= 60 &&
              data.policyText is string && data.policyText.size() >= 5 && data.policyText.size() <= 1000 &&
              data.maintenanceMode is bool &&
              data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
              isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidVerifiedPayment(data) {
+      return data.keys().hasAll(['bookingId', 'customerId', 'amountPaise', 'provider', 'orderId', 'paymentId', 'verifiedBy', 'verifiedAt']) &&
+             data.keys().hasOnly(['bookingId', 'customerId', 'amountPaise', 'provider', 'orderId', 'paymentId', 'verifiedBy', 'verifiedAt']) &&
+             data.bookingId is string && data.bookingId.size() >= 1 && data.bookingId.size() <= 128 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.amountPaise is int && data.amountPaise >= 1 && data.amountPaise <= 5000000 &&
+             data.provider in ['RAZORPAY_WEBHOOK', 'ADMIN_MANUAL'] &&
+             data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128 &&
+             data.paymentId is string && data.paymentId.size() >= 1 && data.paymentId.size() <= 128 &&
+             data.verifiedBy is string && data.verifiedBy.size() >= 1 && data.verifiedBy.size() <= 128 &&
+             isValidTimestamp(data.verifiedAt);
     }
 
     // --- Collection Rules ---
@@ -324,13 +349,21 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        (
                          isAdmin() ||
-                         // Self-update contact info or apply to become a PENDING barber (cannot self-approve or escalate to ADMIN)
                          (
                            request.auth.uid == userId &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'role', 'status', 'updatedAt']) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'name', 'phone', 'dob', 'age', 'gender',
+                             'onboardingCompleted', 'privacyAccepted',
+                             'role', 'status', 'updatedAt'
+                           ]) &&
                            (
                              (incoming().role == existing().role && incoming().status == existing().status) ||
-                             (existing().role == 'CUSTOMER' && incoming().role == 'BARBER' && incoming().status == 'PENDING')
+                             (
+                               existing().get('onboardingCompleted', false) == false &&
+                               existing().role == 'CUSTOMER' &&
+                               incoming().role == 'BARBER' &&
+                               incoming().status == 'PENDING'
+                             )
                            )
                          )
                        );
@@ -367,7 +400,7 @@ service cloud.firestore {
       }
     }
 
-    // 2. Barber Profiles (Public discovery for APPROVED barbers; self-access for own barber profile; full Admin control)
+    // 2. Barber Profiles (Real verified partner barbers & lady stylists; full Admin control)
     match /barberProfiles/{barberId} {
       allow get: if isSignedIn() && isValidId(barberId) && (
                    resource == null ||
@@ -390,15 +423,8 @@ service cloud.firestore {
                          (
                            request.auth.uid == barberId &&
                            incoming().barberId == request.auth.uid &&
-                           incoming().approvalStatus == 'PENDING'
-                         ) ||
-                         // One-time initial seed for canonical showcase partner barber shops when database is fresh
-                         (
-                           barberId in ['barber_arman_master', 'barber_vikram_stylist', 'barber_danish_pro', 'barber_kabir_atelier'] &&
-                           request.auth.uid != barberId &&
-                           incoming().barberId == barberId &&
-                           incoming().approvalStatus == 'APPROVED' &&
-                           !exists(/databases/$(database)/documents/barberProfiles/$(barberId))
+                           incoming().approvalStatus in ['PENDING', 'APPROVED'] &&
+                           incoming().reviewCount == 0
                          )
                        );
 
@@ -409,14 +435,14 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        (
                          isAdmin() ||
-                         // Barber updates own schedule, bio, availability, skills, shop info, UPI, or services without altering approvalStatus/ratings
                          (
                            request.auth.uid == barberId &&
                            incoming().approvalStatus == existing().approvalStatus &&
                            incoming().ratingAvg == existing().ratingAvg &&
                            incoming().reviewCount == existing().reviewCount &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
-                             'name', 'bio', 'experienceYears', 'isOnline', 'serviceIds', 'serviceAreaIds',
+                             'name', 'phone', 'gender', 'servesLadies', 'servesMen',
+                             'bio', 'experienceYears', 'isOnline', 'serviceIds', 'serviceAreaIds',
                              'workingDays', 'workStartHour', 'workEndHour', 'breakStartHour', 'breakEndHour',
                              'travelBufferMinutes', 'upiId', 'skills', 'perfectionBadge', 'shopName',
                              'shopAddress', 'homeVisitAvailable', 'latitude', 'longitude', 'updatedAt'
@@ -440,9 +466,13 @@ service cloud.firestore {
                          isAdmin() ||
                          (
                            serviceId in [
-                             'svc_classic_cut', 'svc_skin_fade', 'svc_kids_cut', 'svc_senior_cut',
-                             'svc_beard_trim', 'svc_clean_shave', 'svc_hair_wash', 'svc_scalp_oil',
-                             'svc_face_cleanup', 'svc_brow_neck', 'svc_pkg_essential', 'svc_pkg_complete'
+                             'svc_classic_cut', 'svc_beard_trim', 'svc_pkg_essential',
+                             'svc_normal_head_cut', 'svc_traditional_cut', 'svc_skin_fade',
+                             'svc_crew_buzz_cut', 'svc_kids_cut', 'svc_senior_cut',
+                             'svc_ladies_haircut', 'svc_ladies_layer_blowout', 'svc_ladies_trim_wash',
+                             'svc_traditional_shave', 'svc_clean_shave', 'svc_scalp_oil',
+                             'svc_hair_wash', 'svc_face_cleanup', 'svc_brow_neck',
+                             'svc_pkg_traditional_combo', 'svc_pkg_complete'
                            ] &&
                            !exists(/databases/$(database)/documents/services/$(serviceId))
                          )
@@ -495,7 +525,7 @@ service cloud.firestore {
                        isValidId(lockId) &&
                        isValidSlotLock(incoming()) &&
                        isValidTimestamp(incoming().createdAt) &&
-                       (incoming().customerId == request.auth.uid || isAdmin()) &&
+                       (incoming().customerId == request.auth.uid || incoming().barberId == request.auth.uid || isAdmin()) &&
                        exists(/databases/$(database)/documents/barberProfiles/$(incoming().barberId));
 
       allow update: if isSignedIn() &&
@@ -504,9 +534,12 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        (
                          isAdmin() ||
-                         // Releasing an expired/cancelled slot or owning customer/barber updating status
                          (
-                           (existing().customerId == request.auth.uid || existing().barberId == request.auth.uid || existing().status == 'RELEASED') &&
+                           (
+                             existing().customerId == request.auth.uid ||
+                             existing().barberId == request.auth.uid ||
+                             (existing().status == 'RELEASED' && (incoming().customerId == request.auth.uid || incoming().barberId == request.auth.uid))
+                           ) &&
                            incoming().barberId == existing().barberId &&
                            incoming().dateKey == existing().dateKey &&
                            incoming().hourSlot == existing().hourSlot &&
@@ -517,93 +550,138 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(lockId);
     }
 
-    // 6. Bookings (Core Marketplace Engine — ₹0 Customer Fee, Commission Charged to Barber)
+    // 6. Bookings (Open-Dispatch Pool + Live Barber GPS Movement + Protected Door Address)
     match /bookings/{bookingId} {
       allow get: if isSignedIn() && isValidId(bookingId) && (
                    existing().customerId == request.auth.uid ||
                    existing().barberId == request.auth.uid ||
+                   (existing().barberId == 'UNASSIGNED' && existing().status == 'AWAITING_BARBER') ||
                    isAdmin()
                  );
 
       allow list: if isSignedIn() && (
                     existing().customerId == request.auth.uid ||
                     existing().barberId == request.auth.uid ||
+                    (existing().barberId == 'UNASSIGNED' && existing().status == 'AWAITING_BARBER') ||
                     isAdmin()
                   );
 
       allow create: if isSignedIn() &&
                        isValidId(bookingId) &&
-                       isValidBooking(incoming()) &&
+                       isValidBookingCreate(incoming()) &&
                        isValidTimestamp(incoming().createdAt) &&
                        (
-                         isAdmin() ||
                          (
                            incoming().customerId == request.auth.uid &&
                            incoming().status in ['SLOT_HELD', 'PAYMENT_PENDING', 'AWAITING_BARBER'] &&
                            incoming().approvedAddOnPaise == 0 &&
                            incoming().directPaymentStatus == 'PENDING' &&
-                           exists(/databases/$(database)/documents/barberProfiles/$(incoming().barberId)) &&
-                           get(/databases/$(database)/documents/barberProfiles/$(incoming().barberId)).data.approvalStatus == 'APPROVED'
-                         )
+                           (
+                             (incoming().platformBookingFeePaise == 0 && incoming().bookingFeeStatus == 'ZERO_CUSTOMER_FEE') ||
+                             (
+                               incoming().platformBookingFeePaise > 0 &&
+                               (
+                                 incoming().bookingFeeStatus == 'UNPAID' ||
+                                 (
+                                   incoming().bookingFeeStatus == 'PAID_VERIFIED' &&
+                                   exists(/databases/$(database)/documents/verifiedPayments/$(bookingId)) &&
+                                   get(/databases/$(database)/documents/verifiedPayments/$(bookingId)).data.amountPaise >= incoming().platformBookingFeePaise
+                                 )
+                               )
+                             )
+                           ) &&
+                           (
+                             incoming().barberId == 'UNASSIGNED' ||
+                             (
+                               exists(/databases/$(database)/documents/barberProfiles/$(incoming().barberId)) &&
+                               get(/databases/$(database)/documents/barberProfiles/$(incoming().barberId)).data.approvalStatus == 'APPROVED'
+                             )
+                           )
+                         ) ||
+                         isAdmin()
                        );
 
       allow update: if isSignedIn() &&
                        isValidId(bookingId) &&
-                       isValidBooking(incoming()) &&
+                       isValidBookingFields(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().customerId == existing().customerId &&
                        incoming().bookingNumber == existing().bookingNumber &&
                        (
-                         isAdmin() ||
                          (
-                           // Terminal state lock: non-admins cannot reopen CANCELLED, EXPIRED, or NO_SHOW bookings
                            !(existing().status in ['CANCELLED', 'EXPIRED', 'NO_SHOW']) &&
                            (
                              // Action A: Customer cancels/reschedules, approves/declines extra service, confirms/disputes direct payment, or marks review
                              (
                                request.auth.uid == existing().customerId &&
-                               incoming().barberId == existing().barberId &&
-                               incoming().serviceSubtotalPaise == existing().serviceSubtotalPaise &&
-                               incoming().platformBookingFeePaise == existing().platformBookingFeePaise &&
                                incoming().diff(existing()).affectedKeys().hasOnly([
                                  'status', 'dateKey', 'startHour', 'bookingFeeStatus', 'bookingFeeTxRef',
                                  'approvedAddOnPaise', 'barberServicePayablePaise', 'totalCustomerCostPaise',
                                  'barberCommissionPaise', 'barberNetEarningsPaise',
                                  'durationMinutes', 'serviceNamesSummary', 'pendingAddOnStatus',
                                  'directPaymentStatus', 'cancellationReason', 'hasReview', 'updatedAt'
-                               ])
+                               ]) &&
+                               (
+                                 incoming().bookingFeeStatus != 'PAID_VERIFIED' ||
+                                 existing().bookingFeeStatus == 'PAID_VERIFIED' ||
+                                 (
+                                   exists(/databases/$(database)/documents/verifiedPayments/$(bookingId)) &&
+                                   get(/databases/$(database)/documents/verifiedPayments/$(bookingId)).data.amountPaise >= existing().platformBookingFeePaise
+                                 )
+                               )
                              ) ||
-                             // Action B: Assigned Barber accepts/rejects, updates trip/service execution, requests catalog add-on (cannot alter approvedAddOnPaise!), or records direct payment declaration
+                             // Action B1: Verified Barber claims an UNASSIGNED customer booking from the Open Dispatch Pool
+                             (
+                               existing().barberId == 'UNASSIGNED' &&
+                               existing().status == 'AWAITING_BARBER' &&
+                               incoming().barberId == request.auth.uid &&
+                               incoming().status == 'CONFIRMED' &&
+                               incoming().diff(existing()).affectedKeys().hasOnly([
+                                 'barberId', 'barberName', 'barberPhone', 'barberLat', 'barberLon',
+                                 'status', 'updatedAt'
+                               ]) &&
+                               exists(/databases/$(database)/documents/barberProfiles/$(request.auth.uid)) &&
+                               get(/databases/$(database)/documents/barberProfiles/$(request.auth.uid)).data.approvalStatus == 'APPROVED'
+                             ) ||
+                             // Action B2: Assigned Barber updates trip/service execution, live GPS movement, add-on request, or direct payment record
                              (
                                request.auth.uid == existing().barberId &&
-                               incoming().barberId == existing().barberId &&
-                               incoming().serviceSubtotalPaise == existing().serviceSubtotalPaise &&
-                               incoming().approvedAddOnPaise == existing().approvedAddOnPaise &&
-                               incoming().travelChargePaise == existing().travelChargePaise &&
-                               incoming().barberServicePayablePaise == existing().barberServicePayablePaise &&
-                               incoming().platformBookingFeePaise == existing().platformBookingFeePaise &&
-                               incoming().bookingFeeStatus == existing().bookingFeeStatus &&
                                incoming().diff(existing()).affectedKeys().hasOnly([
-                                 'status', 'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise',
+                                 'status', 'barberPhone', 'barberLat', 'barberLon',
+                                 'pendingAddOnServiceId', 'pendingAddOnName', 'pendingAddOnPricePaise',
                                  'pendingAddOnDurationMin', 'pendingAddOnStatus', 'directPaymentStatus',
                                  'directPaymentMethod', 'directPaymentDeclaredPaise', 'directPaymentRef',
+                                 'directPaymentRecordedBy', 'directPaymentRecordedAt',
                                  'barberCommissionStatus', 'cancellationReason', 'updatedAt'
-                               ])
+                               ]) &&
+                               (
+                                 !(incoming().directPaymentStatus in ['CASH_DECLARED', 'UPI_DECLARED', 'PARTIAL_DECLARED', 'UNPAID_DECLARED'] &&
+                                   incoming().directPaymentStatus != existing().directPaymentStatus) ||
+                                 (
+                                   incoming().get('directPaymentRecordedBy', '') == request.auth.uid &&
+                                   ('directPaymentRecordedAt' in incoming()) &&
+                                   isValidTimestamp(incoming().directPaymentRecordedAt)
+                                 )
+                               )
                              )
                            )
-                         )
+                         ) ||
+                         (isAdmin() && incoming().keys().size() <= 46)
                        );
 
       allow delete: if isAdmin() && isValidId(bookingId);
 
-      // Protected Full Home Door Address Snapshot (Parent Gate + Assigned Barber Authorization)
+      // Protected Full Home Door Address Snapshot (Parent Gate + Claimed Barber Authorization)
       match /privateDetails/{detailId} {
         allow get: if isSignedIn() && isValidId(bookingId) && isValidId(detailId) && (
                      existing().customerId == request.auth.uid ||
                      isAdmin() ||
                      (
-                       existing().barberId == request.auth.uid &&
                        exists(/databases/$(database)/documents/bookings/$(bookingId)) &&
+                       (
+                         existing().barberId == request.auth.uid ||
+                         get(/databases/$(database)/documents/bookings/$(bookingId)).data.barberId == request.auth.uid
+                       ) &&
                        !(get(/databases/$(database)/documents/bookings/$(bookingId)).data.status in ['CANCELLED', 'EXPIRED'])
                      )
                    );
@@ -706,7 +784,7 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 10. Platform Configuration (Barber Commission Policy & Cancellation Cutoff)
+    // 10. Platform Configuration
     match /platformConfig/{configId} {
       allow get: if isSignedIn() && isValidId(configId);
       allow list: if isAdmin();
@@ -714,6 +792,21 @@ service cloud.firestore {
                                isValidId(configId) &&
                                isValidPlatformConfig(incoming()) &&
                                incoming().updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // 11. Server / Admin Verified Upfront Payments (Clients CANNOT spoof payment verification)
+    match /verifiedPayments/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (
+                   resource == null ||
+                   existing().customerId == request.auth.uid ||
+                   isAdmin()
+                 );
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() &&
+                               isValidId(bookingId) &&
+                               isValidVerifiedPayment(incoming()) &&
+                               incoming().bookingId == bookingId;
       allow delete: if false;
     }
   }

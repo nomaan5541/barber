@@ -144,7 +144,14 @@ fun CustomerHomeScreen(
     }
 
     val popularIds = remember {
-        setOf("svc_classic_cut", "svc_beard_trim", "svc_pkg_essential", "svc_normal_head_cut", "svc_traditional_cut")
+        setOf(
+            "svc_classic_cut",
+            "svc_beard_trim",
+            "svc_pkg_essential",
+            "svc_ladies_haircut",
+            "svc_normal_head_cut",
+            "svc_traditional_cut"
+        )
     }
     val displayedServices = remember(services, selectedCategory) {
         when (selectedCategory) {
@@ -263,50 +270,36 @@ fun CustomerHomeScreen(
                 }
             }
 
-            // 2. Hero Greeting + Optical HeroLens Badge + Tactile "Book a Barber" Button
+            // 2. Sunlit Editorial Hero Card + Instant Open-Dispatch "Book a Barber" CTA
             item {
                 Card(
                     shape = RoundedCornerShape(26.dp),
-                    border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.42f)),
-                    colors = CardDefaults.cardColors(containerColor = EspressoHeaderBg),
+                    border = BorderStroke(1.dp, BrassGold.copy(alpha = 0.48f)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        Image(
-                            painter = painterResource(id = R.drawable.img_svc_haircut_1792915150040),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(236.dp)
-                        )
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(236.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            EspressoHeaderBg.copy(alpha = 0.62f),
-                                            EspressoHeaderBg.copy(alpha = 0.86f),
-                                            EspressoHeaderBg.copy(alpha = 0.98f)
-                                        )
-                                    )
-                                )
-                        )
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .height(168.dp)
                         ) {
-                            LiquidGlassSurface(
-                                strength = GlassMaterialStrength.HeroLens,
+                            Image(
+                                painter = painterResource(id = R.drawable.hero_home_grooming_1793031644119),
+                                contentDescription = "At-home grooming stylist",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Surface(
+                                color = EspressoHeaderBg.copy(alpha = 0.90f),
                                 shape = RoundedCornerShape(50),
-                                shadowElevation = 0.dp,
-                                interactivePhysics = false
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -317,40 +310,46 @@ fun CustomerHomeScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "AT-HOME GROOMING ATELIER",
+                                        text = "INSTANT HOME DISPATCH · MEN & LADIES",
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFFFFDF9E)
                                     )
                                 }
                             }
+                        }
+
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Text(
                                 text = DoorCutPreferences.localizedGreeting(localPrefs.selectedLanguage),
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = stringResource(R.string.home_greeting_subtitle),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color(0xFFE7DAC8)
+                                text = "Choose your service — a verified nearby Barber or Lady Hair Stylist accepts & tracks live to your door.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Button(
                                 onClick = onStartBookingFlow,
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = BrassGold,
-                                    contentColor = EspressoHeaderBg
+                                    containerColor = EspressoHeaderBg,
+                                    contentColor = Color(0xFFFFDF9E)
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(56.dp)
+                                    .height(54.dp)
                                     .tactilePressPhysics(
                                         pressedScale = 0.965f,
-                                        maxTiltDegrees = 2.2f,
+                                        maxTiltDegrees = 2.0f,
                                         specularColor = Color.White,
-                                        specularAlpha = 0.22f,
+                                        specularAlpha = 0.18f,
                                         enableHaptics = true
                                     )
                                     .testTag("home_book_barber_button")
@@ -358,18 +357,21 @@ fun CustomerHomeScreen(
                                 Icon(
                                     imageVector = Icons.Filled.ContentCut,
                                     contentDescription = null,
+                                    tint = BrassGold,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = stringResource(R.string.btn_book_a_barber),
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                     contentDescription = null,
+                                    tint = BrassGold,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -415,17 +417,35 @@ fun CustomerHomeScreen(
                                 }
                                 StatusBadge(upcomingBooking.friendlyStatusText())
                             }
+                            val displayStylistTitle = if (upcomingBooking.isOpenDispatch) {
+                                if (upcomingBooking.preferLadyBarber) {
+                                    "Matching Nearby Lady Hair Stylist..."
+                                } else {
+                                    "Matching Nearby Verified Barber..."
+                                }
+                            } else {
+                                upcomingBooking.barberName
+                            }
+                            val scheduleText = if (upcomingBooking.bookingMode == "ASAP") {
+                                "ASAP Express Dispatch · ${upcomingBooking.dateKey}"
+                            } else {
+                                "${upcomingBooking.dateKey} · ${CurrencyUtils.formatHourSlot(upcomingBooking.startHour)}"
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                BarberAvatarBadge(name = upcomingBooking.barberName, isOnline = true, size = 46.dp)
+                                BarberAvatarBadge(
+                                    name = if (upcomingBooking.isOpenDispatch) "DoorCut" else upcomingBooking.barberName,
+                                    isOnline = true,
+                                    size = 46.dp
+                                )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = upcomingBooking.barberName,
+                                        text = displayStylistTitle,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "${upcomingBooking.dateKey} · ${CurrencyUtils.formatHourSlot(upcomingBooking.startHour)}",
+                                        text = scheduleText,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.SemiBold
@@ -439,7 +459,7 @@ fun CustomerHomeScreen(
                                     )
                                 }
                                 Text(
-                                    text = "Track →",
+                                    text = "Live Map →",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -645,83 +665,133 @@ fun SimpleServiceBookingCard(
         label = "add_btn_bg_${service.id}"
     )
 
-    LiquidGlassSurface(
-        strength = if (isSelected) GlassMaterialStrength.AccentEmerald else GlassMaterialStrength.AtelierCard,
-        shape = RoundedCornerShape(20.dp),
-        accentBorderColor = if (isSelected) SageVerified else null,
-        shadowElevation = if (isSelected) 4.dp else 2.dp,
-        onClick = onOpenDetails,
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                SageVerified.copy(alpha = 0.08f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        ),
+        border = BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) SageVerified else MaterialTheme.colorScheme.outlineVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .staggeredSpringEntrance(index = staggerIndex)
+            .clickable(onClick = onOpenDetails)
             .testTag("service_card_${service.id}")
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Image(
-                painter = painterResource(id = visual.drawableRes),
-                contentDescription = service.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(74.dp)
-                    .clip(RoundedCornerShape(16.dp))
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = service.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = CurrencyUtils.formatRupees(service.pricePaise),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "  ·  ",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Icon(
-                        imageVector = Icons.Filled.Schedule,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = "${service.durationMinutes} min",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Text(
-                    text = "Pay directly to barber",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(
-                onClick = onToggleFavourite,
-                modifier = Modifier.size(48.dp)
+            // Top Row: Sunlit Image + Highlighted Title/Duration on Left, Bold Price + Favourite on Right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
             ) {
-                Icon(
-                    imageVector = if (isFavourite) Icons.Filled.Favorite else Icons.OutlinedFavoriteFallback(isFavourite),
-                    contentDescription = if (isFavourite) "Remove from favourites" else "Save to favourites",
-                    tint = if (isFavourite) Color(0xFFD9383A) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = heartScale
-                        scaleY = heartScale
-                    }
+                Image(
+                    painter = painterResource(id = visual.drawableRes),
+                    contentDescription = service.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(82.dp)
+                        .clip(RoundedCornerShape(16.dp))
                 )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Surface(
+                        color = if (service.category == "LADIES_STYLING") {
+                            Color(0xFF9C27B0).copy(alpha = 0.12f)
+                        } else {
+                            BrassGold.copy(alpha = 0.20f)
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = visual.badgeLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (service.category == "LADIES_STYLING") {
+                                Color(0xFF6A1B9A)
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Text(
+                        text = service.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${service.durationMinutes} min · Pay barber after cut",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    Surface(
+                        color = BrassGold.copy(alpha = 0.24f),
+                        border = BorderStroke(1.dp, BrassGold),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = CurrencyUtils.formatRupees(service.pricePaise),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onToggleFavourite,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isFavourite) Icons.Filled.Favorite else Icons.OutlinedFavoriteFallback(isFavourite),
+                            contentDescription = if (isFavourite) "Remove from favourites" else "Save to favourites",
+                            tint = if (isFavourite) Color(0xFFD9383A) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = heartScale
+                                scaleY = heartScale
+                            }
+                        )
+                    }
+                }
             }
+
+            // Full Visible Service Description (no dark overshading, no truncation squeeze)
+            Text(
+                text = service.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            // Bottom Full-Width Bold Add / Added Button
             Button(
                 onClick = onToggleSelect,
                 shape = RoundedCornerShape(14.dp),
@@ -729,21 +799,27 @@ fun SimpleServiceBookingCard(
                     containerColor = addBtnContainer,
                     contentColor = Color.White
                 ),
-                contentPadding = PaddingValues(horizontal = 14.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
                 modifier = Modifier
+                    .fillMaxWidth()
                     .height(48.dp)
-                    .tactilePressPhysics(pressedScale = 0.93f, maxTiltDegrees = 0f, enableHaptics = true)
+                    .tactilePressPhysics(pressedScale = 0.96f, maxTiltDegrees = 0f, enableHaptics = true)
                     .testTag("add_service_button_${service.id}")
             ) {
                 Icon(
                     imageVector = if (isSelected) Icons.Filled.Check else Icons.Filled.Add,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (isSelected) "Added" else "Add",
-                    fontWeight = FontWeight.Bold
+                    text = if (isSelected) {
+                        "Added to Booking ✓  •  ${CurrencyUtils.formatRupees(service.pricePaise)}"
+                    } else {
+                        "Add Service  •  ${CurrencyUtils.formatRupees(service.pricePaise)}"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold
                 )
             }
         }

@@ -1,10 +1,7 @@
 package com.example.ui.admin
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -17,9 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -35,10 +34,7 @@ import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -77,7 +72,13 @@ import com.example.ui.components.SectionHeader
 import com.example.ui.components.SkillPill
 import com.example.ui.components.StatusBadge
 import com.example.ui.components.serviceVisualFor
+import com.example.ui.glass.GlassMaterialStrength
+import com.example.ui.glass.LiquidGlassPill
+import com.example.ui.glass.LiquidGlassSurface
+import com.example.ui.motion.staggeredSpringEntrance
+import com.example.ui.motion.tactilePressPhysics
 import com.example.ui.theme.BrassGold
+import com.example.ui.theme.CrimsonDispute
 import com.example.ui.theme.EspressoHeaderBg
 import com.example.ui.viewmodel.MarketplaceViewModel
 
@@ -107,33 +108,40 @@ fun AdminOverviewScreen(
     val openTicketsCount = tickets.count { it.status != "RESOLVED" }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("admin_overview_screen"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
             SectionHeader(
                 eyebrow = "MARKETPLACE COMMAND CENTER",
                 title = "Admin Operations Dashboard",
-                subtitle = "Separate Two-Payment Ledger: Platform Booking Fees vs Direct Customer-to-Barber Payments"
+                subtitle = "Separate Two-Payment Ledger: Platform Booking Fees vs Direct Customer-to-Barber Payments",
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
-        // Seed / Sync Canonical Services & Barber Studios Hero Card
+        // Seed / Sync Canonical Services & Barber Studios Hero Liquid Glass Card
         item {
-            Card(
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.FloatingPill,
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = EspressoHeaderBg),
-                modifier = Modifier.fillMaxWidth()
+                accentBorderColor = BrassGold.copy(alpha = 0.55f),
+                shadowElevation = 5.dp,
+                interactivePhysics = false,
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 1)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(EspressoHeaderBg, Color(0xFF2E231A))
-                            )
-                        )
                         .padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -163,6 +171,7 @@ fun AdminOverviewScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
+                            .tactilePressPhysics(enableHaptics = true)
                             .testTag("admin_bootstrap_button")
                     ) {
                         Text(
@@ -175,7 +184,13 @@ fun AdminOverviewScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 2)
+            ) {
                 MetricBentoCard(
                     icon = Icons.Filled.Percent,
                     title = "Booking Fee Revenue",
@@ -195,7 +210,13 @@ fun AdminOverviewScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 3)
+            ) {
                 MetricBentoCard(
                     icon = Icons.Filled.EventAvailable,
                     title = "Bookings (${bookings.size})",
@@ -214,7 +235,13 @@ fun AdminOverviewScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 4)
+            ) {
                 MetricBentoCard(
                     icon = Icons.Filled.ReportProblem,
                     title = "Payment Disputes",
@@ -231,6 +258,123 @@ fun AdminOverviewScreen(
                 )
             }
         }
+
+        // OpenSalon clean-room workflow equivalent: Master Chronological Dispatch Schedule
+        val upcomingDispatch = bookings
+            .filter { it.status !in setOf("CANCELLED", "DECLINED", "EXPIRED") }
+            .sortedWith(compareBy<Booking> { it.dateKey }.thenBy { it.startHour })
+            .take(8)
+        if (upcomingDispatch.isNotEmpty()) {
+            item {
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.AtelierCard,
+                    shape = RoundedCornerShape(22.dp),
+                    shadowElevation = 2.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .testTag("admin_master_schedule_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Master Dispatch Schedule",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        upcomingDispatch.forEach { b ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${b.dateKey} • ${CurrencyUtils.formatHourSlot(b.startHour)} (${b.durationMinutes}m)",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${b.customerName} -> ${b.barberName} (${b.areaSummary})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                StatusBadge(b.status)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Registered Users Governance (ACTIVE / SUSPENDED)
+        if (users.isNotEmpty()) {
+            item {
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.AtelierCard,
+                    shape = RoundedCornerShape(22.dp),
+                    shadowElevation = 2.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .testTag("admin_users_governance_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Registered Accounts (${users.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        users.take(12).forEach { u ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${u.name.ifBlank { "Member" }} (${u.role})",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${u.email.ifBlank { u.phone }} • ${u.status}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (u.role != "ADMIN") {
+                                    val toggleTarget = if (u.status == "SUSPENDED") "ACTIVE" else "SUSPENDED"
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.adminSetUserStatus(
+                                                userId = u.userId,
+                                                status = toggleTarget,
+                                                reason = "Admin account governance toggle"
+                                            )
+                                        },
+                                        enabled = !isBusy,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text(if (u.status == "SUSPENDED") "Activate" else "Suspend")
+                                    }
+                                } else {
+                                    StatusBadge("ADMIN")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -242,34 +386,46 @@ fun AdminBarbersManagementScreen(
     isBusy: Boolean
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("admin_barbers_screen"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
             SectionHeader(
                 eyebrow = "PARTNER QUALITY GATE",
                 title = "Barbers & Studios Approval",
-                subtitle = "Verify craftsmanship, skills, and sanitized home-visit kits before activation."
+                subtitle = "Verify craftsmanship, skills, and sanitized home-visit kits before activation.",
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
         if (barbers.isEmpty()) {
             item {
-                EmptyStateCard(
-                    icon = Icons.Filled.Verified,
-                    title = "No Barber Profiles Yet",
-                    subtitle = "Seed partner barber shops from Overview or let barbers apply from the Account screen."
-                )
+                Column(modifier = Modifier.widthIn(max = 680.dp)) {
+                    EmptyStateCard(
+                        icon = Icons.Filled.Verified,
+                        title = "No Barber Profiles Yet",
+                        subtitle = "Seed partner barber shops from Overview or let barbers apply from the Account screen."
+                    )
+                }
             }
         } else {
-            items(barbers, key = { it.barberId }) { barber ->
+            itemsIndexed(barbers, key = { _, it -> it.barberId }) { idx, barber ->
                 var auditReason by remember { mutableStateOf("Verified shop, skills & sanitized home kit") }
-                Card(
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.AtelierCard,
                     shape = RoundedCornerShape(22.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                    shadowElevation = 2.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .staggeredSpringEntrance(index = idx + 1)
                 ) {
                     Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
@@ -325,9 +481,14 @@ fun AdminBarbersManagementScreen(
                                 onClick = { viewModel.adminSetBarberStatus(barber.barberId, "APPROVED", auditReason) },
                                 enabled = !isBusy && barber.approvalStatus != "APPROVED",
                                 shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EspressoHeaderBg,
+                                    contentColor = Color(0xFFFFDF9E)
+                                ),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
+                                    .tactilePressPhysics(enableHaptics = true)
                             ) {
                                 Text("Approve", fontWeight = FontWeight.Bold)
                             }
@@ -339,6 +500,7 @@ fun AdminBarbersManagementScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
+                                    .tactilePressPhysics(enableHaptics = true)
                             ) {
                                 Text("Suspend")
                             }
@@ -349,6 +511,7 @@ fun AdminBarbersManagementScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
+                                    .tactilePressPhysics(enableHaptics = true)
                             ) {
                                 Text("Reject")
                             }
@@ -376,23 +539,34 @@ fun AdminCatalogManagementScreen(
     var isPackage by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("admin_catalog_screen"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
             SectionHeader(
                 eyebrow = "VISUAL MENU CURATION",
                 title = "Service & Combo Catalog",
-                subtitle = "Each category automatically pairs with its bespoke service photography on the customer's first page."
+                subtitle = "Each category automatically pairs with its bespoke service photography on the customer's first page.",
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
         item {
-            Card(
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = false,
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 1)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -407,13 +581,13 @@ fun AdminCatalogManagementScreen(
 
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(ServiceCategory.entries) { cat ->
-                            FilterChip(
+                            LiquidGlassPill(
+                                text = cat.displayTitle,
                                 selected = category == cat.name,
                                 onClick = {
                                     category = cat.name
                                     isPackage = cat == ServiceCategory.PACKAGES
-                                },
-                                label = { Text(cat.displayTitle) }
+                                }
                             )
                         }
                     }
@@ -458,6 +632,7 @@ fun AdminCatalogManagementScreen(
                         Checkbox(checked = isPackage, onCheckedChange = { isPackage = it })
                         Text("Combo Package", style = MaterialTheme.typography.bodySmall)
                     }
+                    val canSaveService = !isBusy && name.isNotBlank()
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = {
@@ -477,11 +652,16 @@ fun AdminCatalogManagementScreen(
                                 name = ""
                                 desc = ""
                             },
-                            enabled = !isBusy && name.isNotBlank(),
+                            enabled = canSaveService,
                             shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EspressoHeaderBg,
+                                contentColor = Color(0xFFFFDF9E)
+                            ),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
+                                .tactilePressPhysics(enabled = canSaveService, enableHaptics = true)
                         ) {
                             Text(if (editingId == null) "Add to Catalog" else "Save Changes", fontWeight = FontWeight.Bold)
                         }
@@ -493,7 +673,9 @@ fun AdminCatalogManagementScreen(
                                     desc = ""
                                 },
                                 shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.height(48.dp)
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .tactilePressPhysics()
                             ) {
                                 Text("Cancel")
                             }
@@ -503,15 +685,19 @@ fun AdminCatalogManagementScreen(
             }
         }
 
-        items(services, key = { it.id }) { svc ->
+        itemsIndexed(services, key = { _, it -> it.id }) { idx, svc ->
             val visual = remember(svc.id, svc.category, svc.name, svc.isPackage) {
                 serviceVisualFor(svc)
             }
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = true,
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = idx + 1)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
@@ -550,7 +736,9 @@ fun AdminCatalogManagementScreen(
                             isPackage = svc.isPackage
                         },
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(48.dp)
+                        modifier = Modifier
+                            .height(48.dp)
+                            .tactilePressPhysics()
                     ) {
                         Text("Edit")
                     }
@@ -569,15 +757,21 @@ fun AdminBookingsAndDisputesScreen(
     isBusy: Boolean
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("admin_bookings_screen"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
             SectionHeader(
                 eyebrow = "DISPUTE & DISPATCH DESK",
                 title = "Bookings & Reassignments",
-                subtitle = "Intervene on late visits, reassign approved specialists, or settle payment disputes."
+                subtitle = "Intervene on late visits, reassign approved specialists, or settle payment disputes.",
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
@@ -586,15 +780,24 @@ fun AdminBookingsAndDisputesScreen(
                 Text(
                     text = "Open Support & Dispute Tickets",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
                 )
             }
-            items(tickets.filter { it.status != "RESOLVED" }, key = { it.id }) { ticket ->
+            itemsIndexed(tickets.filter { it.status != "RESOLVED" }, key = { _, it -> it.id }) { idx, ticket ->
                 var resolution by remember { mutableStateOf("") }
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.28f))
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.AtelierCard,
+                    shape = RoundedCornerShape(22.dp),
+                    accentBorderColor = CrimsonDispute.copy(alpha = 0.55f),
+                    shadowElevation = 2.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .staggeredSpringEntrance(index = idx + 1)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -617,13 +820,19 @@ fun AdminBookingsAndDisputesScreen(
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        val canResolve = !isBusy && resolution.isNotBlank()
                         Button(
                             onClick = { viewModel.adminResolveTicket(ticket.id, "RESOLVED", resolution) },
-                            enabled = !isBusy && resolution.isNotBlank(),
+                            enabled = canResolve,
                             shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EspressoHeaderBg,
+                                contentColor = Color(0xFFFFDF9E)
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
+                                .tactilePressPhysics(enabled = canResolve, enableHaptics = true)
                         ) {
                             Text("Record Resolution & Notify Parties", fontWeight = FontWeight.Bold)
                         }
@@ -634,22 +843,28 @@ fun AdminBookingsAndDisputesScreen(
 
         if (bookings.isEmpty()) {
             item {
-                EmptyStateCard(
-                    icon = Icons.Filled.Gavel,
-                    title = "No Bookings Recorded Yet",
-                    subtitle = "Customer reservations and direct-settlement status updates will appear here in real time."
-                )
+                Column(modifier = Modifier.widthIn(max = 680.dp)) {
+                    EmptyStateCard(
+                        icon = Icons.Filled.Gavel,
+                        title = "No Bookings Recorded Yet",
+                        subtitle = "Customer reservations and direct-settlement status updates will appear here in real time."
+                    )
+                }
             }
         } else {
-            items(bookings.sortedByDescending { it.createdAt?.seconds ?: 0L }, key = { it.id }) { booking ->
+            itemsIndexed(bookings.sortedByDescending { it.createdAt?.seconds ?: 0L }, key = { _, it -> it.id }) { idx, booking ->
                 var overrideReason by remember { mutableStateOf("Admin operational intervention") }
                 var selectedReplacement by remember { mutableStateOf<BarberProfile?>(null) }
 
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                LiquidGlassSurface(
+                    strength = GlassMaterialStrength.AtelierCard,
+                    shape = RoundedCornerShape(22.dp),
+                    shadowElevation = 2.dp,
+                    interactivePhysics = false,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .staggeredSpringEntrance(index = idx + 1)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -670,19 +885,32 @@ fun AdminBookingsAndDisputesScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "Customer Payable: ${CurrencyUtils.formatRupees(booking.barberServicePayablePaise)} (${booking.directPaymentStatus}) | Barber Comm: ${CurrencyUtils.formatRupees(booking.effectiveBarberCommissionPaise())}",
+                            text = "${booking.bookingFeeSummaryLabel()} • Barber Comm: ${CurrencyUtils.formatRupees(booking.effectiveBarberCommissionPaise())}",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
+                        Text(
+                            text = booking.directPaymentSummaryLabel(),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                        val directAudit = booking.directPaymentAuditSummary()
+                        if (directAudit.isNotBlank()) {
+                            Text(
+                                text = directAudit,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
                         if (approvedBarbers.size > 1) {
                             Text("Reassign Barber:", style = MaterialTheme.typography.labelMedium)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(approvedBarbers) { b ->
-                                    FilterChip(
+                                items(approvedBarbers, key = { it.barberId }) { b ->
+                                    LiquidGlassPill(
+                                        text = b.name.substringBefore(" "),
                                         selected = selectedReplacement?.barberId == b.barberId,
-                                        onClick = { selectedReplacement = b },
-                                        label = { Text(b.name.substringBefore(" ")) }
+                                        onClick = { selectedReplacement = b }
                                     )
                                 }
                             }
@@ -691,13 +919,36 @@ fun AdminBookingsAndDisputesScreen(
                         OutlinedTextField(
                             value = overrideReason,
                             onValueChange = { overrideReason = it },
-                            label = { Text("Mandatory Audit Reason") },
+                            label = { Text("Mandatory Audit Reason / Payment UTR") },
                             singleLine = true,
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (booking.platformBookingFeePaise > 0L && booking.bookingFeeStatus != "PAID_VERIFIED") {
+                                Button(
+                                    onClick = {
+                                        viewModel.adminVerifyUpfrontBookingFee(
+                                            booking = booking,
+                                            paymentReference = overrideReason
+                                        )
+                                    },
+                                    enabled = !isBusy,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = BrassGold,
+                                        contentColor = EspressoHeaderBg
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .tactilePressPhysics(enableHaptics = true)
+                                        .testTag("admin_verify_fee_${booking.id}")
+                                ) {
+                                    Text("Verify Fee", fontWeight = FontWeight.Bold)
+                                }
+                            }
                             if (selectedReplacement != null) {
                                 Button(
                                     onClick = {
@@ -712,9 +963,14 @@ fun AdminBookingsAndDisputesScreen(
                                     },
                                     enabled = !isBusy,
                                     shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = EspressoHeaderBg,
+                                        contentColor = Color(0xFFFFDF9E)
+                                    ),
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp)
+                                        .tactilePressPhysics(enableHaptics = true)
                                 ) {
                                     Text("Reassign", fontWeight = FontWeight.Bold)
                                 }
@@ -736,6 +992,7 @@ fun AdminBookingsAndDisputesScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp)
+                                        .tactilePressPhysics(enableHaptics = true)
                                 ) {
                                     Text("Settle Dispute")
                                 }
@@ -775,23 +1032,34 @@ fun AdminPoliciesAndAuditScreen(
     var maintenance by remember(platformConfig.maintenanceMode) { mutableStateOf(platformConfig.maintenanceMode) }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("admin_policies_screen"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
             SectionHeader(
                 eyebrow = "GOVERNANCE & BOOKING FEE",
                 title = "Booking Fee & Audit Logs",
-                subtitle = "Configure the upfront Booking Confirmation Fee (default ₹30) and cancellation rules."
+                subtitle = "Configure the upfront Booking Confirmation Fee (default ₹30) and cancellation rules.",
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .staggeredSpringEntrance(index = 0)
             )
         }
 
         item {
-            Card(
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 2.dp,
+                interactivePhysics = false,
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = 1)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -800,15 +1068,15 @@ fun AdminPoliciesAndAuditScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
+                        LiquidGlassPill(
+                            text = "Fixed Fee (₹)",
                             selected = feeMode == "FIXED",
-                            onClick = { feeMode = "FIXED" },
-                            label = { Text("Fixed Fee (₹)") }
+                            onClick = { feeMode = "FIXED" }
                         )
-                        FilterChip(
+                        LiquidGlassPill(
+                            text = "% Booking Fee",
                             selected = feeMode == "PERCENTAGE",
-                            onClick = { feeMode = "PERCENTAGE" },
-                            label = { Text("% Booking Fee") }
+                            onClick = { feeMode = "PERCENTAGE" }
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -877,9 +1145,14 @@ fun AdminPoliciesAndAuditScreen(
                         },
                         enabled = !isBusy,
                         shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EspressoHeaderBg,
+                            contentColor = Color(0xFFFFDF9E)
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
+                            .tactilePressPhysics(enableHaptics = true)
                     ) {
                         Text("Save Booking Fee & Policy", fontWeight = FontWeight.Bold)
                     }
@@ -888,31 +1161,42 @@ fun AdminPoliciesAndAuditScreen(
         }
 
         item {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.HistoryEdu, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Immutable Admin Audit Trail (${auditLogs.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+            ) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.HistoryEdu, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Immutable Admin Audit Trail (${auditLogs.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
-        items(auditLogs.sortedByDescending { it.createdAt?.seconds ?: 0L }, key = { it.id }) { log ->
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                modifier = Modifier.fillMaxWidth()
+        itemsIndexed(auditLogs.sortedByDescending { it.createdAt?.seconds ?: 0L }, key = { _, it -> it.id }) { idx, log ->
+            LiquidGlassSurface(
+                strength = GlassMaterialStrength.AtelierCard,
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 1.dp,
+                interactivePhysics = false,
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .staggeredSpringEntrance(index = idx + 1)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
                         text = "${log.action} • ${log.entityType}:${log.entityId}",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(log.reason, style = MaterialTheme.typography.bodySmall)

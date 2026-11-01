@@ -67,10 +67,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import com.example.data.model.Booking
 import com.example.data.model.CurrencyUtils
-import com.example.ui.auth.onGoogleSignInClicked
 import com.example.ui.components.BarberAvatarBadge
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.StatusBadge
@@ -374,8 +372,13 @@ private fun CustomerBookingItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    val stylistLine = when {
+                        booking.isOpenDispatch && booking.preferLadyBarber -> "Matching Lady Hair Stylist..."
+                        booking.isOpenDispatch -> "Matching Nearby Verified Barber..."
+                        else -> "Stylist: ${booking.barberName.ifBlank { "Verified Stylist" }}"
+                    }
                     BarberAvatarBadge(
-                        name = booking.barberName.ifBlank { "Barber" },
+                        name = if (booking.isOpenDispatch) "DoorCut" else booking.barberName.ifBlank { "Stylist" },
                         isOnline = booking.isUpcoming(),
                         size = 44.dp
                     )
@@ -387,7 +390,7 @@ private fun CustomerBookingItemCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Barber: ${booking.barberName.ifBlank { "Assigned Barber" }}",
+                            text = stylistLine,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -412,7 +415,11 @@ private fun CustomerBookingItemCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "${booking.dateKey} · ${CurrencyUtils.formatHourSlot(booking.startHour)}",
+                        text = if (booking.bookingMode == "ASAP") {
+                            "ASAP Express · ${booking.dateKey}"
+                        } else {
+                            "${booking.dateKey} · ${CurrencyUtils.formatHourSlot(booking.startHour)}"
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
@@ -504,125 +511,6 @@ private fun CustomerBookingItemCard(
                             .tactilePressPhysics()
                     ) {
                         Text("View Details")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Friendly Google Sign-In gate displayed on Bookings when browsing signed out.
- * Uses Jetpack CredentialManager with Google Sign-In.
- */
-@Composable
-fun ProtectedRouteAuthGate(
-    title: String,
-    subtitle: String,
-    onAuthSuccess: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
-    var isSigningIn by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .testTag("protected_route_auth_gate"),
-        contentAlignment = Alignment.Center
-    ) {
-        LiquidGlassSurface(
-            strength = GlassMaterialStrength.AtelierCard,
-            shape = RoundedCornerShape(26.dp),
-            shadowElevation = 6.dp,
-            modifier = Modifier
-                .widthIn(max = 480.dp)
-                .fillMaxWidth()
-                .staggeredSpringEntrance()
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .background(EspressoHeaderBg),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Lock,
-                        contentDescription = null,
-                        tint = BrassGold,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                if (!errorMessage.isNullOrBlank()) {
-                    Text(
-                        text = errorMessage.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                }
-                Button(
-                    onClick = {
-                        isSigningIn = true
-                        errorMessage = null
-                        onGoogleSignInClicked(
-                            context = context,
-                            credentialManager = credentialManager,
-                            onAuthSuccess = {
-                                isSigningIn = false
-                                onAuthSuccess()
-                            },
-                            onAuthError = { msg ->
-                                isSigningIn = false
-                                errorMessage = msg
-                            },
-                            scope = scope,
-                            onAuthCancelled = {
-                                isSigningIn = false
-                            }
-                        )
-                    },
-                    enabled = !isSigningIn,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EspressoHeaderBg,
-                        contentColor = Color(0xFFFFDF9E)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .tactilePressPhysics(enableHaptics = true)
-                        .testTag("auth_gate_google_sign_in_button")
-                ) {
-                    if (isSigningIn) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = BrassGold,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text("Continue with Google", fontWeight = FontWeight.Bold)
                     }
                 }
             }
